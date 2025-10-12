@@ -14,6 +14,7 @@ use std::ops::Deref;
 use memmap2::Mmap;
 use rkyv::Archived;
 use rkyv::rancor::Error;
+use rkyv::util::AlignedVec;
 use rkyv::{
     access, api::serialize_using, ser::allocator::Arena, ser::sharing::Share,
     ser::writer::IoWriter, ser::Serializer, util::with_arena, Archive, Deserialize,
@@ -86,7 +87,7 @@ pub struct DictionaryInner {
 #[allow(dead_code)]
 enum DictBuffer {
     Mmap(Mmap),
-    Heap(Box<[u8]>),
+    Aligned(AlignedVec<16>),
 }
 
 /// A read-only dictionary for tokenization, loaded via zero-copy deserialization.
@@ -233,12 +234,8 @@ impl Dictionary {
     /// or was created with an incompatible version of vibrato.
     pub fn from_path<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
         let file = File::open(path.as_ref()).map_err(|e| {
-            VibratoError::invalid_argument(
-                "path",
-                format!("Failed to open dictionary file: {}", e),
-            )
+            VibratoError::invalid_argument("path", format!("Failed to open dictionary file: {}", e))
         })?;
-        // SAFETY: The file is valid and opened for reading.
         let mmap = unsafe { Mmap::map(&file)? };
 
         if !mmap.starts_with(MODEL_MAGIC) {
@@ -252,33 +249,44 @@ impl Dictionary {
         let magic_len = MODEL_MAGIC.len();
         let padding_len = (RKYV_ALIGNMENT - (magic_len % RKYV_ALIGNMENT)) % RKYV_ALIGNMENT;
         let data_start = magic_len + padding_len;
+
         if mmap.len() <= data_start {
             return Err(VibratoError::invalid_argument(
                 "path",
                 "Dictionary file too small or corrupted.",
             ));
         }
+
         let data_bytes = &mmap[data_start..];
 
-        let archived = access::<ArchivedDictionaryInner, Error>(data_bytes).map_err(|e| {
-            VibratoError::invalid_state(
-                "rkyv validation failed. The dictionary file may be corrupted or incompatible."
-                    .to_string(),
-                e.to_string(),
-            )
-        })?;
+        match access::<ArchivedDictionaryInner, Error>(data_bytes) {
+            Ok(archived) => {
+                let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
+                Ok(Self {
+                    _buffer: DictBuffer::Mmap(mmap),
+                    data,
+                })
+            }
+            Err(_) => {
+                let mut aligned_bytes = AlignedVec::with_capacity(data_bytes.len());
+                aligned_bytes.extend_from_slice(data_bytes);
 
-        // SAFETY: The lifetime of the reference is extended to `'static`.
-        // This is safe because the backing `Mmap` object is owned by the struct
-        // (in the `_buffer` field), ensuring the memory remains valid as long as
-        // the `Dictionary` instance exists.
-        let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
+                let archived = access::<ArchivedDictionaryInner, Error>(&aligned_bytes).map_err(|e| {
+                    VibratoError::invalid_state(
+                        "rkyv validation failed. The dictionary file may be corrupted or incompatible.".to_string(),
+                        e.to_string(),
+                    )
+                })?;
 
-        Ok(Self {
-            _buffer: DictBuffer::Mmap(mmap),
-            data,
-        })
+                let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
+                Ok(Self {
+                    _buffer: DictBuffer::Aligned(aligned_bytes),
+                    data,
+                })
+            }
+        }
     }
+
 
     /// Creates a dictionary from a reader by loading all data into a heap buffer.
     ///
@@ -294,33 +302,40 @@ impl Dictionary {
     ///
     /// Returns an error if the data cannot be read or if its contents are invalid.
     pub fn read<R: Read>(mut rdr: R) -> Result<Self> {
+        const RKYV_ALIGNMENT: usize = 16;
         let mut magic = [0; MODEL_MAGIC.len()];
         rdr.read_exact(&mut magic)?;
         if magic != MODEL_MAGIC {
             return Err(VibratoError::invalid_argument("rdr", "Magic number mismatch."));
         }
 
-        let mut bytes = Vec::new();
-        rdr.read_to_end(&mut bytes)?;
-        let boxed_slice = bytes.into_boxed_slice();
 
-        let archived = access::<ArchivedDictionaryInner, Error>(&boxed_slice).map_err(
-            |e| {
-                VibratoError::invalid_state(
-                    "rkyv validation failed. The dictionary file may be corrupted or incompatible."
-                        .to_string(),
-                    e.to_string(),
-                )
-            },
-        )?;
+        let magic_len = MODEL_MAGIC.len();
+        let padding_len = (RKYV_ALIGNMENT - (magic_len % RKYV_ALIGNMENT)) % RKYV_ALIGNMENT;
+        if padding_len > 0 {
+            let mut padding_buf = vec![0; padding_len];
+            rdr.read_exact(&mut padding_buf)?;
+        }
 
-        // SAFETY: This is safe because the `Box<[u8]>` is moved into this struct,
-        // guaranteeing that the memory it points to will remain valid and stable
-        // for the lifetime of the `Dictionary` instance.
+        let mut buffer = Vec::new();
+        rdr.read_to_end(&mut buffer)?;
+
+        let mut aligned_bytes = AlignedVec::with_capacity(buffer.len());
+        aligned_bytes.extend_from_slice(&buffer);
+
+        let archived = access::<ArchivedDictionaryInner, Error>(&aligned_bytes).map_err(|e| {
+            VibratoError::invalid_state(
+                "rkyv validation failed. The dictionary file may be corrupted or incompatible."
+                    .to_string(),
+                e.to_string(),
+            )
+        })?;
+
+        // SAFETY: AlignedVec ensures correct alignment for ArchivedDictionaryInner
         let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
 
         Ok(Self {
-            _buffer: DictBuffer::Heap(boxed_slice),
+            _buffer: DictBuffer::Aligned(aligned_bytes),
             data,
         })
     }

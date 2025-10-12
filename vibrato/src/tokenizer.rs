@@ -209,6 +209,7 @@ mod tests {
 
     use crate::dictionary::SystemDictionaryBuilder;
 
+    #[track_caller]
     fn build_test_dictionary(
         lexicon_csv: &[u8],
         matrix_def: &[u8],

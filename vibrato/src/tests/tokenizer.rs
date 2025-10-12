@@ -7,6 +7,7 @@ const MATRIX_DEF: &str = include_str!("./resources/matrix.def");
 const CHAR_DEF: &str = include_str!("./resources/char.def");
 const UNK_DEF: &str = include_str!("./resources/unk.def");
 
+#[track_caller]
 fn build_test_dictionary(
     lexicon_csv: &[u8],
     matrix_def: &[u8],
