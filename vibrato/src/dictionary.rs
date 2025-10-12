@@ -155,6 +155,13 @@ impl DictionaryInner {
     {
         wtr.write_all(MODEL_MAGIC)?;
 
+        const RKYV_ALIGNMENT: usize = 16;
+        let magic_len = MODEL_MAGIC.len();
+        let padding_len = (RKYV_ALIGNMENT - (magic_len % RKYV_ALIGNMENT)) % RKYV_ALIGNMENT;
+
+        let padding_bytes = vec![0xFF; padding_len];
+        wtr.write_all(&padding_bytes)?;
+
         with_arena(|arena: &mut Arena| {
             let writer = IoWriter::new(&mut wtr);
             let mut serializer = Serializer::new(writer, arena.acquire(), Share::new());
@@ -241,7 +248,17 @@ impl Dictionary {
             ));
         }
 
-        let data_bytes = &mmap[MODEL_MAGIC.len()..];
+        const RKYV_ALIGNMENT: usize = 16;
+        let magic_len = MODEL_MAGIC.len();
+        let padding_len = (RKYV_ALIGNMENT - (magic_len % RKYV_ALIGNMENT)) % RKYV_ALIGNMENT;
+        let data_start = magic_len + padding_len;
+        if mmap.len() <= data_start {
+            return Err(VibratoError::invalid_argument(
+                "path",
+                "Dictionary file too small or corrupted.",
+            ));
+        }
+        let data_bytes = &mmap[data_start..];
 
         let archived = access::<ArchivedDictionaryInner, Error>(data_bytes).map_err(|e| {
             VibratoError::invalid_state(
