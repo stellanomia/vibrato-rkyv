@@ -1,8 +1,8 @@
-use bincode::{Decode, Encode};
+use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::dictionary::mapper::ConnIdMapper;
 
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Decode, Encode)]
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Archive, Serialize, Deserialize)]
 pub struct WordParam {
     pub left_id: u16,
     pub right_id: u16,
@@ -20,7 +20,17 @@ impl WordParam {
     }
 }
 
-#[derive(Decode, Encode)]
+impl ArchivedWordParam {
+    pub fn to_native(&self) -> WordParam {
+        WordParam {
+            left_id: self.left_id.to_native(),
+            right_id: self.right_id.to_native(),
+            word_cost: self.word_cost.to_native(),
+        }
+    }
+}
+
+#[derive(Archive, Serialize, Deserialize)]
 pub struct WordParams {
     params: Vec<WordParam>,
 }
@@ -50,5 +60,12 @@ impl WordParams {
             p.left_id = mapper.left(p.left_id);
             p.right_id = mapper.right(p.right_id);
         }
+    }
+}
+
+impl ArchivedWordParams {
+    #[inline(always)]
+    pub fn get(&self, word_id: usize) -> WordParam {
+        self.params[word_id].to_native()
     }
 }

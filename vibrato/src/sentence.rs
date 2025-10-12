@@ -1,4 +1,4 @@
-use crate::dictionary::character::{CharInfo, CharProperty};
+use crate::dictionary::character::{ArchivedCharProperty, CharInfo, CharProperty};
 
 #[derive(Default, Clone, Debug)]
 pub struct Sentence {
@@ -37,6 +37,12 @@ impl Sentence {
         self.compute_groupable();
     }
 
+    pub fn compile_archived(&mut self, char_prop: &ArchivedCharProperty) {
+        self.compute_basic();
+        self.compute_categories_archived(char_prop);
+        self.compute_groupable();
+    }
+
     fn compute_basic(&mut self) {
         for (bi, ch) in self.input.char_indices() {
             self.chars.push(ch);
@@ -46,6 +52,15 @@ impl Sentence {
     }
 
     fn compute_categories(&mut self, char_prop: &CharProperty) {
+        debug_assert!(!self.chars.is_empty());
+
+        self.cinfos.reserve(self.chars.len());
+        for &c in &self.chars {
+            self.cinfos.push(char_prop.char_info(c));
+        }
+    }
+
+    fn compute_categories_archived(&mut self, char_prop: &ArchivedCharProperty) {
         debug_assert!(!self.chars.is_empty());
 
         self.cinfos.reserve(self.chars.len());

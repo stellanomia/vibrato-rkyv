@@ -7,20 +7,30 @@
 //!
 //! ```
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use std::fs::File;
 //!
-//! use vibrato::{SystemDictionaryBuilder, Tokenizer};
+//! use vibrato_rkyv::{Dictionary, SystemDictionaryBuilder, Tokenizer};
 //!
-//! // Loads a set of raw dictionary files
-//! let dict = SystemDictionaryBuilder::from_readers(
-//!     File::open("src/tests/resources/lex.csv")?,
-//!     File::open("src/tests/resources/matrix.def")?,
-//!     File::open("src/tests/resources/char.def")?,
-//!     File::open("src/tests/resources/unk.def")?,
+//! let lexicon_csv = "京都,4,4,5,京都,名詞,固有名詞,地名,一般,*,*,キョウト,京都,*,A,*,*,*,1/5
+//! 東京都,5,5,9,東京都,名詞,固有名詞,地名,一般,*,*,トウキョウト,東京都,*,B,5/9,*,5/9,*";
+//! let matrix_def = "10 10\n0 4 -5\n0 5 -9";
+//! let char_def = "DEFAULT 0 1 0";
+//! let unk_def = "DEFAULT,0,0,100,DEFAULT,名詞,普通名詞,*,*,*,*,*,*,*,*,*,*,*,*";
+//!
+//!
+//! let dict_inner = SystemDictionaryBuilder::from_readers(
+//!     lexicon_csv.as_bytes(),
+//!     matrix_def.as_bytes(),
+//!     char_def.as_bytes(),
+//!     unk_def.as_bytes(),
 //! )?;
-//! // or loads a compiled dictionary
-//! // let reader = File::open("path/to/system.dic")?;
-//! // let dict = Dictionary::read(reader)?;
+//!
+//!
+//!
+//! let mut buffer = Vec::new();
+//! dict_inner.write(&mut buffer)?;
+//!
+//! let dict = Dictionary::read(buffer.as_slice())?;
+//!
 //!
 //! let tokenizer = Tokenizer::new(dict);
 //! let mut worker = tokenizer.new_worker();

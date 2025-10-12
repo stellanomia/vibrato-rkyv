@@ -1,11 +1,11 @@
-use bincode::{Decode, Encode};
+use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::errors::{Result, VibratoError};
 
 use crate::common::BOS_EOS_CONNECTION_ID;
 
 /// Mapper for connection ids.
-#[derive(Decode, Encode)]
+#[derive(Archive, Serialize, Deserialize)]
 pub struct ConnIdMapper {
     left: Vec<u16>,
     right: Vec<u16>,
@@ -166,21 +166,21 @@ mod tests {
     #[test]
     fn test_parse_basic() {
         let map = vec![2, 3, 4, 1];
-        let mapping = ConnIdMapper::parse(map.into_iter()).unwrap();
+        let mapping = ConnIdMapper::parse(map).unwrap();
         assert_eq!(mapping, vec![0, 4, 1, 2, 3]);
     }
 
     #[test]
     fn test_parse_zero() {
         let map = vec![2, 3, 0, 1];
-        let result = ConnIdMapper::parse(map.into_iter());
+        let result = ConnIdMapper::parse(map);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_oor() {
         let map = vec![2, 3, 5, 1];
-        let result = ConnIdMapper::parse(map.into_iter());
+        let result = ConnIdMapper::parse(map);
         assert!(result.is_err());
     }
 }

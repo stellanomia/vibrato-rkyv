@@ -1,34 +1,36 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::LazyLock};
 
-use bincode::{Decode, Encode};
 use regex::Regex;
+use rkyv::{Archive, Deserialize, Serialize};
 
-#[derive(Eq, PartialEq, Decode, Encode)]
+static REF_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\$([0-9]+)$").unwrap());
+
+#[derive(Eq, PartialEq, Archive, Serialize, Deserialize)]
 enum Pattern {
     Any,
     Exact(String),
     Multiple(HashSet<String>),
 }
 
-#[derive(Decode, Encode)]
+#[derive(Archive, Serialize, Deserialize)]
 enum Rewrite {
     Reference(usize),
     Text(String),
 }
 
-#[derive(Decode, Encode)]
+#[derive(Archive, Serialize, Deserialize)]
 struct Edge {
     pattern: Pattern,
     target: usize,
 }
 
-#[derive(Decode, Encode)]
+#[derive(Archive, Serialize, Deserialize)]
 enum Action {
     Transition(Edge),
     Rewrite(Vec<Rewrite>),
 }
 
-#[derive(Default, Decode, Encode)]
+#[derive(Default, Archive, Serialize, Deserialize)]
 struct Node {
     actions: Vec<Action>,
 }
@@ -37,14 +39,20 @@ struct Node {
 /// rewrite rules as associated values.
 pub struct FeatureRewriterBuilder {
     nodes: Vec<Node>,
-    ref_pattern: Regex,
+    ref_pattern: &'static LazyLock<Regex>,
+}
+
+impl Default for FeatureRewriterBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FeatureRewriterBuilder {
     pub fn new() -> Self {
         Self {
             nodes: vec![Node::default()],
-            ref_pattern: Regex::new(r"^\$([0-9]+)$").unwrap(),
+            ref_pattern: &REF_PATTERN,
         }
     }
 
@@ -70,12 +78,11 @@ impl FeatureRewriterBuilder {
                 Pattern::Exact(p.to_string())
             };
             for action in &self.nodes[cursor].actions {
-                if let Action::Transition(edge) = action {
-                    if parsed == edge.pattern {
+                if let Action::Transition(edge) = action
+                    && parsed == edge.pattern {
                         cursor = edge.target;
                         continue 'a;
                     }
-                }
             }
             let target = self.nodes.len();
             self.nodes[cursor].actions.push(Action::Transition(Edge {
@@ -103,7 +110,7 @@ impl FeatureRewriterBuilder {
 }
 
 /// Rewriter that maintains rewrite patterns and rules in a prefix trie.
-#[derive(Decode, Encode)]
+#[derive(Archive, Serialize, Deserialize)]
 pub struct FeatureRewriter {
     nodes: Vec<Node>,
 }

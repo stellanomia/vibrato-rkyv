@@ -1,23 +1,29 @@
 use std::io::{BufWriter, Read, Write};
 use std::num::NonZeroU32;
 
-use bincode::{Decode, Encode};
 use hashbrown::HashMap;
+use rkyv::api::serialize_using;
+use rkyv::rancor::Error;
+use rkyv::ser::Serializer;
+use rkyv::ser::allocator::Arena;
+use rkyv::ser::sharing::Share;
+use rkyv::ser::writer::IoWriter;
+use rkyv::util::with_arena;
+use rkyv::{Archive, Deserialize, Serialize, from_bytes};
 
-use crate::common;
 use crate::dictionary::lexicon::Lexicon;
 use crate::dictionary::word_idx::WordIdx;
 use crate::dictionary::{LexType, WordParam};
-use crate::errors::Result;
+use crate::errors::{Result, VibratoError};
 pub use crate::trainer::config::TrainerConfig;
 use crate::trainer::corpus::Word;
 pub use crate::trainer::Trainer;
 use crate::utils::{self, FromU32};
 
-#[derive(Decode, Encode)]
+#[derive(Archive, Serialize, Deserialize)]
 pub struct ModelData {
     pub config: TrainerConfig,
-    pub raw_model: rucrf::RawModel,
+    pub raw_model: rucrf_rkyv::RawModel,
 }
 
 /// Tokenization Model
@@ -26,7 +32,7 @@ pub struct Model {
 
     // This field is not filled in by default for processing efficiency. The data is pre-computed
     // in `write_used_features()` and `write_dictionary()` and shared throughout the structure.
-    pub(crate) merged_model: Option<rucrf::MergedModel>,
+    pub(crate) merged_model: Option<rucrf_rkyv::MergedModel>,
 
     pub(crate) user_entries: Vec<(Word, WordParam, NonZeroU32)>,
 }
@@ -347,13 +353,20 @@ impl Model {
     /// # Errors
     ///
     /// When bincode generates an error, it will be returned as is.
-    pub fn write_model<W>(&self, mut wtr: W) -> Result<usize>
+    pub fn write_model<W>(&self, mut wtr: W) -> Result<()>
     where
         W: Write,
     {
-        let num_bytes =
-            bincode::encode_into_std_write(&self.data, &mut wtr, common::bincode_config())?;
-        Ok(num_bytes)
+        with_arena(|arena: &mut Arena| {
+            let writer = IoWriter::new(&mut wtr);
+            let mut serializer = Serializer::new(writer, arena.acquire(), Share::new());
+            serialize_using::<_, rkyv::rancor::Error>(&self.data, &mut serializer)
+        })
+        .map_err(|e| {
+            VibratoError::invalid_state("rkyv serialization failed".to_string(), e.to_string())
+        })?;
+
+        Ok(())
     }
 
     /// Reads a model.
@@ -365,7 +378,16 @@ impl Model {
     where
         R: Read,
     {
-        let data = bincode::decode_from_std_read(&mut rdr, common::bincode_config())?;
+        let mut bytes = Vec::new();
+        rdr.read_to_end(&mut bytes)?;
+
+        let data = from_bytes(&bytes).map_err(|e: Error| {
+            VibratoError::invalid_state(
+                "rkyv deserialization failed. The model file may be corrupted.".to_string(),
+                e.to_string(),
+            )
+        })?;
+
         Ok(Self {
             data,
             merged_model: None,

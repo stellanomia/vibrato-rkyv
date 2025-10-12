@@ -7,13 +7,16 @@ use std::fmt;
 pub type Result<T, E = VibratoError> = std::result::Result<T, E>;
 
 /// The error type for Vibrato.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum VibratoError {
     /// The error variant for [`InvalidArgumentError`].
     InvalidArgument(InvalidArgumentError),
 
     /// The error variant for [`InvalidFormatError`].
     InvalidFormat(InvalidFormatError),
+
+    /// The error variant for [`InvalidStateError`].
+    InvalidState(InvalidStateError),
 
     /// The error variant for [`TryFromIntError`](std::num::TryFromIntError).
     TryFromInt(std::num::TryFromIntError),
@@ -24,21 +27,19 @@ pub enum VibratoError {
     /// The error variant for [`ParseIntError`](std::num::ParseIntError).
     ParseInt(std::num::ParseIntError),
 
-    /// The error variant for [`DecodeError`](bincode::error::DecodeError).
-    BincodeDecode(bincode::error::DecodeError),
-
-    /// The error variant for [`EncodeError`](bincode::error::EncodeError).
-    BincodeEncode(bincode::error::EncodeError),
-
     /// The error variant for [`std::io::Error`].
     StdIo(std::io::Error),
 
     /// The error variant for [`std::str::Utf8Error`].
     Utf8(std::str::Utf8Error),
 
-    /// The error variant for [`RucrfError`](rucrf::errors::RucrfError).
+    /// The error variant for [`RucrfError`](rucrf_rkyv::errors::RucrfError).
     #[cfg(feature = "train")]
-    Crf(rucrf::errors::RucrfError),
+    Crf(rucrf_rkyv::errors::RucrfError),
+
+    #[error(transparent)]
+    /// The error variant for [`rkyv::rancor::Error`](rkyv::rancor::Error).
+    RkyvError(#[from] rkyv::rancor::Error),
 }
 
 impl VibratoError {
@@ -61,6 +62,17 @@ impl VibratoError {
             msg: msg.into(),
         })
     }
+
+    pub(crate) fn invalid_state<S, M>(msg: S, cause: M) -> Self
+    where
+        S: Into<String>,
+        M: Into<String>,
+    {
+        Self::InvalidState(InvalidStateError {
+            msg: msg.into(),
+            cause: cause.into(),
+        })
+    }
 }
 
 impl fmt::Display for VibratoError {
@@ -68,21 +80,19 @@ impl fmt::Display for VibratoError {
         match self {
             Self::InvalidArgument(e) => e.fmt(f),
             Self::InvalidFormat(e) => e.fmt(f),
+            Self::InvalidState(e) => e.fmt(f),
             Self::TryFromInt(e) => e.fmt(f),
             Self::ParseFloat(e) => e.fmt(f),
             Self::ParseInt(e) => e.fmt(f),
-            Self::BincodeDecode(e) => e.fmt(f),
-            Self::BincodeEncode(e) => e.fmt(f),
             Self::StdIo(e) => e.fmt(f),
             Self::Utf8(e) => e.fmt(f),
+            Self::RkyvError(e) => e.fmt(f),
 
             #[cfg(feature = "train")]
             Self::Crf(e) => e.fmt(f),
         }
     }
 }
-
-impl Error for VibratoError {}
 
 /// Error used when the argument is invalid.
 #[derive(Debug)]
@@ -120,6 +130,25 @@ impl fmt::Display for InvalidFormatError {
 
 impl Error for InvalidFormatError {}
 
+/// Error used when the state is invalid.
+#[derive(Debug)]
+pub struct InvalidStateError {
+    /// Error message.
+    pub(crate) msg: String,
+
+    /// Underlying cause of the error.
+    pub(crate) cause: String,
+}
+
+impl fmt::Display for InvalidStateError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "InvalidStateError: {}: {}", self.msg, self.cause)
+    }
+}
+
+impl Error for InvalidStateError {}
+
+
 impl From<std::num::TryFromIntError> for VibratoError {
     fn from(error: std::num::TryFromIntError) -> Self {
         Self::TryFromInt(error)
@@ -138,18 +167,6 @@ impl From<std::num::ParseIntError> for VibratoError {
     }
 }
 
-impl From<bincode::error::DecodeError> for VibratoError {
-    fn from(error: bincode::error::DecodeError) -> Self {
-        Self::BincodeDecode(error)
-    }
-}
-
-impl From<bincode::error::EncodeError> for VibratoError {
-    fn from(error: bincode::error::EncodeError) -> Self {
-        Self::BincodeEncode(error)
-    }
-}
-
 impl From<std::io::Error> for VibratoError {
     fn from(error: std::io::Error) -> Self {
         Self::StdIo(error)
@@ -163,8 +180,8 @@ impl From<std::str::Utf8Error> for VibratoError {
 }
 
 #[cfg(feature = "train")]
-impl From<rucrf::errors::RucrfError> for VibratoError {
-    fn from(error: rucrf::errors::RucrfError) -> Self {
+impl From<rucrf_rkyv::errors::RucrfError> for VibratoError {
+    fn from(error: rucrf_rkyv::errors::RucrfError) -> Self {
         Self::Crf(error)
     }
 }

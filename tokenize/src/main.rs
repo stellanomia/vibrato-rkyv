@@ -4,8 +4,8 @@ use std::io::{BufRead, BufWriter, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use vibrato::dictionary::Dictionary;
-use vibrato::Tokenizer;
+use vibrato_rkyv::dictionary::Dictionary;
+use vibrato_rkyv::Tokenizer;
 
 use clap::Parser;
 
@@ -35,10 +35,6 @@ struct Args {
     #[clap(short = 'i', long)]
     sysdic: PathBuf,
 
-    /// User lexicon file.
-    #[clap(short = 'u', long)]
-    userlex_csv: Option<PathBuf>,
-
     /// Output mode. Choices are mecab, wakati, and detail.
     #[clap(short = 'O', long, default_value = "mecab")]
     output_mode: OutputMode,
@@ -57,11 +53,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     eprintln!("Loading the dictionary...");
     let reader = zstd::Decoder::new(File::open(args.sysdic)?)?;
-    let mut dict = Dictionary::read(reader)?;
-
-    if let Some(userlex_csv) = args.userlex_csv {
-        dict = dict.reset_user_lexicon_from_reader(Some(File::open(userlex_csv)?))?;
-    }
+    let dict = Dictionary::read(reader)?;
 
     let tokenizer = Tokenizer::new(dict)
         .ignore_space(args.ignore_space)?

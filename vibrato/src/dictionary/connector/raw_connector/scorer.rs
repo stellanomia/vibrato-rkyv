@@ -1,14 +1,11 @@
+#![allow(dead_code)]
 use std::collections::BTreeMap;
 
 #[cfg(target_feature = "avx2")]
-use std::arch::x86_64::{self, __m256i};
+use std::arch::x86_64 as x86_64;
 
-use bincode::{
-    de::Decoder,
-    enc::Encoder,
-    error::{DecodeError, EncodeError},
-    Decode, Encode,
-};
+use rkyv::rancor::Error;
+use rkyv::{Archive, Deserialize, Serialize, from_bytes_unchecked, to_bytes};
 
 use crate::num::U31;
 use crate::utils::FromU32;
@@ -16,12 +13,10 @@ use crate::utils::FromU32;
 const UNUSED_CHECK: u32 = u32::MAX;
 
 pub const SIMD_SIZE: usize = 8;
-#[cfg(not(target_feature = "avx2"))]
-#[derive(Clone, Copy)]
-pub struct U31x8([U31; SIMD_SIZE]);
-#[cfg(target_feature = "avx2")]
-#[derive(Clone, Copy)]
-pub struct U31x8(__m256i);
+
+#[derive(Clone, Copy, Debug, Archive, Serialize, Deserialize, PartialEq, Eq)]
+#[rkyv(compare(PartialEq), derive(Clone, Copy))]
+pub struct U31x8(pub [U31; SIMD_SIZE]);
 
 impl U31x8 {
     pub fn to_simd_vec(data: &[U31]) -> Vec<Self> {
@@ -29,78 +24,25 @@ impl U31x8 {
         for xs in data.chunks(SIMD_SIZE) {
             let mut array = [U31::default(); SIMD_SIZE];
             array[..xs.len()].copy_from_slice(xs);
-
-            #[cfg(not(target_feature = "avx2"))]
             result.push(Self(array));
-
-            // Safety
-            debug_assert_eq!(std::mem::size_of_val(array.as_slice()), 32);
-            #[cfg(target_feature = "avx2")]
-            unsafe {
-                result.push(Self(x86_64::_mm256_loadu_si256(
-                    array.as_ptr() as *const __m256i
-                )));
-            }
         }
         result
+    }
+
+    #[cfg(target_feature = "avx2")]
+    pub unsafe fn as_m256i(&self) -> x86_64::__m256i {
+        x86_64::_mm256_loadu_si256(self.0.as_ptr() as *const x86_64::__m256i)
     }
 }
 
 impl Default for U31x8 {
-    #[cfg(not(target_feature = "avx2"))]
     fn default() -> Self {
         Self([U31::default(); SIMD_SIZE])
-    }
-
-    #[cfg(target_feature = "avx2")]
-    fn default() -> Self {
-        unsafe { Self(x86_64::_mm256_set1_epi32(0)) }
-    }
-}
-
-impl<Context> Decode<Context> for U31x8 {
-    fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
-        let data: [U31; 8] = Decode::decode(decoder)?;
-
-        // Safety
-        debug_assert_eq!(std::mem::size_of_val(data.as_slice()), 32);
-        #[cfg(target_feature = "avx2")]
-        let data = unsafe { x86_64::_mm256_loadu_si256(data.as_ptr() as *const __m256i) };
-
-        Ok(Self(data))
-    }
-}
-bincode::impl_borrow_decode!(U31x8);
-
-impl Encode for U31x8 {
-    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
-        #[cfg(not(target_feature = "avx2"))]
-        let data = (
-            self.0[0], self.0[1], self.0[2], self.0[3], self.0[4], self.0[5], self.0[6], self.0[7],
-        );
-
-        #[cfg(target_feature = "avx2")]
-        let data = unsafe {
-            (
-                x86_64::_mm256_extract_epi32(self.0, 0),
-                x86_64::_mm256_extract_epi32(self.0, 1),
-                x86_64::_mm256_extract_epi32(self.0, 2),
-                x86_64::_mm256_extract_epi32(self.0, 3),
-                x86_64::_mm256_extract_epi32(self.0, 4),
-                x86_64::_mm256_extract_epi32(self.0, 5),
-                x86_64::_mm256_extract_epi32(self.0, 6),
-                x86_64::_mm256_extract_epi32(self.0, 7),
-            )
-        };
-
-        Encode::encode(&data, encoder)?;
-        Ok(())
     }
 }
 
 pub struct ScorerBuilder {
-    // Two-level trie mapping a pair of two keys into a cost, where
-    // the first level stores the first key, and the second level stores the second key.
+    // Two-level trie mapping a pair of two keys into a cost
     pub trie: Vec<BTreeMap<U31, i32>>,
 }
 
@@ -120,11 +62,10 @@ impl ScorerBuilder {
     #[inline(always)]
     fn check_base(base: u32, second_map: &BTreeMap<U31, i32>, checks: &[u32]) -> bool {
         for &key2 in second_map.keys() {
-            if let Some(check) = checks.get(usize::from_u32(base ^ key2.get())) {
-                if *check != UNUSED_CHECK {
+            if let Some(check) = checks.get(usize::from_u32(base ^ key2.get()))
+                && *check != UNUSED_CHECK {
                     return false;
                 }
-            }
         }
         true
     }
@@ -155,6 +96,7 @@ impl ScorerBuilder {
         let bases_len = unsafe { x86_64::_mm256_set1_epi32(i32::try_from(bases.len()).unwrap()) };
         #[cfg(target_feature = "avx2")]
         let checks_len = unsafe { x86_64::_mm256_set1_epi32(i32::try_from(checks.len()).unwrap()) };
+
         Scorer {
             bases,
             checks,
@@ -168,15 +110,19 @@ impl ScorerBuilder {
     }
 }
 
+#[derive(Archive, Serialize, Deserialize, Debug, PartialEq)]
+#[rkyv(compare(PartialEq))]
 pub struct Scorer {
     bases: Vec<u32>,
     checks: Vec<u32>,
     costs: Vec<i32>,
 
     #[cfg(target_feature = "avx2")]
-    bases_len: __m256i,
+    #[rkyv(skip)]
+    bases_len: x86_64::__m256i,
     #[cfg(target_feature = "avx2")]
-    checks_len: __m256i,
+    #[rkyv(skip)]
+    checks_len: x86_64::__m256i,
 }
 
 #[allow(clippy::derivable_impls)]
@@ -195,47 +141,6 @@ impl Default for Scorer {
     }
 }
 
-impl<Context> Decode<Context> for Scorer {
-    fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
-        let bases: Vec<u32> = Decode::decode(decoder)?;
-        let checks: Vec<u32> = Decode::decode(decoder)?;
-        let costs: Vec<i32> = Decode::decode(decoder)?;
-
-        if checks.len() != costs.len() {
-            return Err(DecodeError::ArrayLengthMismatch {
-                required: checks.len(),
-                found: costs.len(),
-            });
-        }
-
-        #[cfg(target_feature = "avx2")]
-        let bases_len = unsafe { x86_64::_mm256_set1_epi32(i32::try_from(bases.len()).unwrap()) };
-        #[cfg(target_feature = "avx2")]
-        let checks_len = unsafe { x86_64::_mm256_set1_epi32(i32::try_from(checks.len()).unwrap()) };
-
-        Ok(Self {
-            bases,
-            checks,
-            costs,
-
-            #[cfg(target_feature = "avx2")]
-            bases_len,
-            #[cfg(target_feature = "avx2")]
-            checks_len,
-        })
-    }
-}
-bincode::impl_borrow_decode!(Scorer);
-
-impl Encode for Scorer {
-    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
-        Encode::encode(&self.bases, encoder)?;
-        Encode::encode(&self.checks, encoder)?;
-        Encode::encode(&self.costs, encoder)?;
-        Ok(())
-    }
-}
-
 impl Scorer {
     #[cfg(not(target_feature = "avx2"))]
     #[inline(always)]
@@ -243,11 +148,10 @@ impl Scorer {
         if let Some(base) = self.bases.get(usize::from_u32(key1.get())) {
             let pos = base ^ key2.get();
             let pos = usize::from_u32(pos);
-            if let Some(check) = self.checks.get(pos) {
-                if *check == key1.get() {
+            if let Some(check) = self.checks.get(pos)
+                && *check == key1.get() {
                     return Some(self.costs[pos]);
                 }
-            }
         }
         None
     }
@@ -257,8 +161,8 @@ impl Scorer {
     pub fn accumulate_cost(&self, keys1: &[U31x8], keys2: &[U31x8]) -> i32 {
         let mut score = 0;
         for (key1, key2) in keys1.iter().zip(keys2) {
-            for (&key1, &key2) in key1.0.iter().zip(&key2.0) {
-                if let Some(w) = self.retrieve_cost(key1, key2) {
+            for (&k1, &k2) in key1.0.iter().zip(&key2.0) {
+                if let Some(w) = self.retrieve_cost(k1, k2) {
                     score += w;
                 }
             }
@@ -266,16 +170,9 @@ impl Scorer {
         score
     }
 
-    /// # Safety
-    ///
-    /// Arguments must satisfy the following constraints:
-    ///
-    /// * 0 <= key1
-    /// * 0 <= key2
-    /// * self.costs.len() == self.checks.len()
     #[cfg(target_feature = "avx2")]
     #[inline(always)]
-    pub unsafe fn retrieve_cost(&self, key1: __m256i, key2: __m256i) -> __m256i {
+    pub unsafe fn retrieve_cost(&self, key1: x86_64::__m256i, key2: x86_64::__m256i) -> x86_64::__m256i {
         // key1 < bases.len() ?
         let mask_valid_key1 = x86_64::_mm256_cmpgt_epi32(self.bases_len, key1);
         // base = bases[key1]
@@ -287,7 +184,6 @@ impl Scorer {
             4,
         );
         // pos = base ^ key2
-        // (base >= 0 && key2 >= 0 ==> pos >= 0)
         let pos = x86_64::_mm256_xor_si256(base, key2);
         // pos < checks.len() && key1 < bases.len() ?
         let mask_valid_pos = x86_64::_mm256_and_si256(
@@ -315,21 +211,14 @@ impl Scorer {
         )
     }
 
-    /// # Safety
-    ///
-    /// Arguments must satisfy the following constraints:
-    ///
-    /// * 0 <= key1
-    /// * 0 <= key2
-    /// * self.costs.len() == self.checks.len()
     #[cfg(target_feature = "avx2")]
     #[inline(always)]
     pub fn accumulate_cost(&self, keys1: &[U31x8], keys2: &[U31x8]) -> i32 {
         unsafe {
             let mut sums = x86_64::_mm256_set1_epi32(0);
-            for (key1, key2) in keys1.iter().zip(keys2) {
-                let key1 = key1.0;
-                let key2 = key2.0;
+            for (k1, k2) in keys1.iter().zip(keys2.iter()) {
+                let key1 = k1.as_m256i();
+                let key2 = k2.as_m256i();
 
                 sums = x86_64::_mm256_add_epi32(sums, self.retrieve_cost(key1, key2));
             }
@@ -343,17 +232,149 @@ impl Scorer {
                 + x86_64::_mm256_extract_epi32(sums, 7)
         }
     }
+
+    pub fn serialize_to_bytes(&self) -> Vec<u8> {
+        to_bytes::<Error>(self).expect("failed to rkyv serialize").into()
+    }
+
+    pub unsafe fn deserialize_from_bytes(bytes: &[u8]) -> Scorer {
+        unsafe { from_bytes_unchecked::<Scorer, Error>(bytes).expect("failed to rkyv deserialize") }
+    }
+}
+
+impl ArchivedScorer {
+    #[cfg(target_feature = "avx2")]
+    unsafe fn post_deserialize(&self) -> (x86_64::__m256i, x86_64::__m256i) {
+        let bases_len = x86_64::_mm256_set1_epi32(i32::try_from(self.bases.len()).unwrap());
+        let checks_len = x86_64::_mm256_set1_epi32(i32::try_from(self.checks.len()).unwrap());
+        (bases_len, checks_len)
+    }
+
+    #[cfg(not(target_feature = "avx2"))]
+    #[inline(always)]
+    fn retrieve_cost(&self, key1: U31, key2: U31) -> Option<i32> {
+        if let Some(&base_le) = self.bases.get(usize::from_u32(key1.get())) {
+            let base = base_le.to_native();
+            let pos = base ^ key2.get();
+            let pos = usize::from_u32(pos);
+            if let Some(&check_le) = self.checks.get(pos) {
+                let check = check_le.to_native();
+                if check == key1.get() {
+                    return Some(self.costs[pos].to_native());
+                }
+            }
+        }
+        None
+    }
+
+    #[cfg(not(target_feature = "avx2"))]
+    #[inline(always)]
+    pub fn accumulate_cost(&self, keys1: &[ArchivedU31x8], keys2: &[ArchivedU31x8]) -> i32 {
+        let mut score = 0;
+        for (key1, key2) in keys1.iter().zip(keys2) {
+            for (k1, k2) in key1.0.iter().zip(&key2.0) {
+                if let Some(w) = self.retrieve_cost(k1.to_native(), k2.to_native()) {
+                    score += w;
+                }
+            }
+        }
+        score
+    }
+
+    #[cfg(target_feature = "avx2")]
+    #[inline(always)]
+    pub unsafe fn retrieve_cost(
+        &self,
+        key1: x86_64::__m256i,
+        key2: x86_64::__m256i,
+        bases_len: x86_64::__m256i,
+        checks_len: x86_64::__m256i,
+    ) -> x86_64::__m256i {
+        // key1 < bases.len() ?
+        let mask_valid_key1 = x86_64::_mm256_cmpgt_epi32(bases_len, key1);
+
+        // base = bases[key1]
+        let base = x86_64::_mm256_mask_i32gather_epi32(
+            x86_64::_mm256_set1_epi32(0),
+            self.bases.as_ptr() as *const i32,
+            key1,
+            mask_valid_key1,
+            4, // 4 bytes (i32) scale
+        );
+
+        // pos = base ^ key2
+        let pos = x86_64::_mm256_xor_si256(base, key2);
+
+        // pos < checks.len() && key1 < bases.len() ?
+        let mask_valid_pos = x86_64::_mm256_and_si256(
+            x86_64::_mm256_cmpgt_epi32(checks_len, pos),
+            mask_valid_key1,
+        );
+
+        // check = checks[pos]
+        let check = x86_64::_mm256_mask_i32gather_epi32(
+            x86_64::_mm256_set1_epi32(UNUSED_CHECK as i32),
+            self.checks.as_ptr() as *const i32,
+            pos,
+            mask_valid_pos,
+            4,
+        );
+
+        // check == key1 && pos < checks.len() && key1 < bases.len() ?
+        let mask_checked =
+            x86_64::_mm256_and_si256(x86_64::_mm256_cmpeq_epi32(check, key1), mask_valid_pos);
+
+        // return costs[pos] where mask is set
+        x86_64::_mm256_mask_i32gather_epi32(
+            x86_64::_mm256_set1_epi32(0),
+            self.costs.as_ptr() as *const i32,
+            pos,
+            mask_checked,
+            4,
+        )
+    }
+
+    #[cfg(target_feature = "avx2")]
+    #[inline(always)]
+    pub fn accumulate_cost(&self, keys1: &[ArchivedU31x8], keys2: &[ArchivedU31x8]) -> i32 {
+        unsafe {
+            let (bases_len, checks_len) = self.post_deserialize();
+
+            let mut sums = x86_64::_mm256_set1_epi32(0);
+            for (k1, k2) in keys1.iter().zip(keys2.iter()) {
+                let key1 = k1.as_m256i();
+                let key2 = k2.as_m256i();
+
+                sums = x86_64::_mm256_add_epi32(sums, self.retrieve_cost(key1, key2, bases_len, checks_len));
+            }
+
+            // Sum up all 8 lanes of the SIMD register
+            x86_64::_mm256_extract_epi32(sums, 0)
+                + x86_64::_mm256_extract_epi32(sums, 1)
+                + x86_64::_mm256_extract_epi32(sums, 2)
+                + x86_64::_mm256_extract_epi32(sums, 3)
+                + x86_64::_mm256_extract_epi32(sums, 4)
+                + x86_64::_mm256_extract_epi32(sums, 5)
+                + x86_64::_mm256_extract_epi32(sums, 6)
+                + x86_64::_mm256_extract_epi32(sums, 7)
+        }
+    }
+}
+
+impl ArchivedU31x8 {
+    #[cfg(target_feature = "avx2")]
+    pub unsafe fn as_m256i(&self) -> x86_64::__m256i {
+        x86_64::_mm256_loadu_si256(self.0.as_ptr() as *const x86_64::__m256i)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use rkyv::rancor::Error;
     use crate::dictionary::connector::raw_connector::INVALID_FEATURE_ID;
 
-    #[cfg(not(target_feature = "avx2"))]
-    #[test]
-    fn retrieve_cost_test() {
+    fn build_test_scorer() -> Scorer {
         let mut builder = ScorerBuilder::new();
         builder.insert(U31::new(18).unwrap(), U31::new(17).unwrap(), 1);
         builder.insert(U31::new(4).unwrap(), U31::new(9).unwrap(), 2);
@@ -375,139 +396,112 @@ mod tests {
         builder.insert(U31::new(1).unwrap(), U31::new(4).unwrap(), 18);
         builder.insert(U31::new(0).unwrap(), U31::new(18).unwrap(), 19);
         builder.insert(U31::new(18).unwrap(), U31::new(11).unwrap(), 20);
-        let scorer = builder.build();
-
-        assert_eq!(
-            scorer.retrieve_cost(U31::new(0).unwrap(), U31::new(18).unwrap()),
-            Some(19)
-        );
-        assert_eq!(
-            scorer.retrieve_cost(U31::new(0).unwrap(), U31::new(19).unwrap()),
-            Some(11)
-        );
-        assert_eq!(
-            scorer.retrieve_cost(U31::new(9).unwrap(), U31::new(4).unwrap()),
-            Some(10)
-        );
-        assert_eq!(
-            scorer.retrieve_cost(U31::new(9).unwrap(), U31::new(6).unwrap()),
-            Some(16)
-        );
-        assert_eq!(
-            scorer.retrieve_cost(U31::new(0).unwrap(), U31::new(0).unwrap()),
-            None
-        );
-        assert_eq!(
-            scorer.retrieve_cost(U31::new(9).unwrap(), U31::new(5).unwrap()),
-            None
-        );
+        builder.build()
     }
 
     #[test]
-    fn accumulate_cost_test() {
-        let mut builder = ScorerBuilder::new();
-        builder.insert(U31::new(18).unwrap(), U31::new(17).unwrap(), 1);
-        builder.insert(U31::new(4).unwrap(), U31::new(9).unwrap(), 2);
-        builder.insert(U31::new(17).unwrap(), U31::new(0).unwrap(), 3);
-        builder.insert(U31::new(17).unwrap(), U31::new(12).unwrap(), 4);
-        builder.insert(U31::new(8).unwrap(), U31::new(6).unwrap(), 5);
-        builder.insert(U31::new(2).unwrap(), U31::new(5).unwrap(), 6);
-        builder.insert(U31::new(12).unwrap(), U31::new(18).unwrap(), 7);
-        builder.insert(U31::new(9).unwrap(), U31::new(1).unwrap(), 8);
-        builder.insert(U31::new(19).unwrap(), U31::new(5).unwrap(), 9);
-        builder.insert(U31::new(9).unwrap(), U31::new(4).unwrap(), 10);
-        builder.insert(U31::new(0).unwrap(), U31::new(19).unwrap(), 11);
-        builder.insert(U31::new(2).unwrap(), U31::new(19).unwrap(), 12);
-        builder.insert(U31::new(7).unwrap(), U31::new(9).unwrap(), 13);
-        builder.insert(U31::new(18).unwrap(), U31::new(9).unwrap(), 14);
-        builder.insert(U31::new(17).unwrap(), U31::new(4).unwrap(), 15);
-        builder.insert(U31::new(9).unwrap(), U31::new(6).unwrap(), 16);
-        builder.insert(U31::new(13).unwrap(), U31::new(0).unwrap(), 17);
-        builder.insert(U31::new(1).unwrap(), U31::new(4).unwrap(), 18);
-        builder.insert(U31::new(0).unwrap(), U31::new(18).unwrap(), 19);
-        builder.insert(U31::new(18).unwrap(), U31::new(11).unwrap(), 20);
-        let scorer = builder.build();
+    fn roundtrip_serialize_and_accumulate_cost() {
+        let scorer = build_test_scorer();
 
-        assert_eq!(
-            scorer.accumulate_cost(
-                &U31x8::to_simd_vec(&[
-                    U31::new(18).unwrap(),
-                    U31::new(17).unwrap(),
-                    U31::new(0).unwrap(),
-                    INVALID_FEATURE_ID,
-                    U31::new(8).unwrap(),
-                    U31::new(12).unwrap(),
-                    U31::new(19).unwrap(),
-                    INVALID_FEATURE_ID,
-                    INVALID_FEATURE_ID,
-                    U31::new(9).unwrap(),
-                    U31::new(0).unwrap(),
-                    U31::new(7).unwrap(),
-                    U31::new(17).unwrap(),
-                    U31::new(13).unwrap(),
-                    U31::new(0).unwrap(),
-                    INVALID_FEATURE_ID
-                ]),
-                &U31x8::to_simd_vec(&[
-                    U31::new(17).unwrap(),
-                    U31::new(0).unwrap(),
-                    U31::new(0).unwrap(),
-                    INVALID_FEATURE_ID,
-                    U31::new(6).unwrap(),
-                    U31::new(18).unwrap(),
-                    U31::new(5).unwrap(),
-                    INVALID_FEATURE_ID,
-                    INVALID_FEATURE_ID,
-                    U31::new(9).unwrap(),
-                    U31::new(19).unwrap(),
-                    U31::new(9).unwrap(),
-                    U31::new(4).unwrap(),
-                    U31::new(0).unwrap(),
-                    U31::new(18).unwrap(),
-                    INVALID_FEATURE_ID
-                ]),
-            ),
-            100,
-        );
+        let bytes = scorer.serialize_to_bytes();
+
+        let restored_scorer = rkyv::from_bytes::<Scorer, Error>(&bytes).expect("deserialization failed");
+
+        #[cfg(target_feature = "avx2")]
+        {
+            restored_scorer.bases_len = unsafe { x86_64::_mm256_set1_epi32(i32::try_from(restored_scorer.bases.len()).unwrap()) };
+            restored_scorer.checks_len = unsafe { x86_64::_mm256_set1_epi32(i32::try_from(restored_scorer.checks.len()).unwrap()) };
+        }
+
+        assert_eq!(restored_scorer.bases, scorer.bases);
+        assert_eq!(restored_scorer.checks, scorer.checks);
+        assert_eq!(restored_scorer.costs, scorer.costs);
+
+        let keys1 = U31x8::to_simd_vec(&[
+            U31::new(18).unwrap(), U31::new(17).unwrap(), U31::new(0).unwrap(), INVALID_FEATURE_ID,
+            U31::new(8).unwrap(), U31::new(12).unwrap(), U31::new(19).unwrap(), INVALID_FEATURE_ID,
+            INVALID_FEATURE_ID, U31::new(9).unwrap(), U31::new(0).unwrap(), U31::new(7).unwrap(),
+            U31::new(17).unwrap(), U31::new(13).unwrap(), U31::new(0).unwrap(), INVALID_FEATURE_ID
+        ]);
+        let keys2 = U31x8::to_simd_vec(&[
+            U31::new(17).unwrap(), U31::new(0).unwrap(), U31::new(0).unwrap(), INVALID_FEATURE_ID,
+            U31::new(6).unwrap(), U31::new(18).unwrap(), U31::new(5).unwrap(), INVALID_FEATURE_ID,
+            INVALID_FEATURE_ID, U31::new(9).unwrap(), U31::new(19).unwrap(), U31::new(9).unwrap(),
+            U31::new(4).unwrap(), U31::new(0).unwrap(), U31::new(18).unwrap(), INVALID_FEATURE_ID
+        ]);
+
+        assert_eq!(restored_scorer.accumulate_cost(&keys1, &keys2), 100);
+    }
+
+    #[test]
+    fn retrieve_cost_test() {
+        let scorer = build_test_scorer();
+
+        let cases = vec![
+            (0, 18, Some(19)),
+            (0, 19, Some(11)),
+            (9, 4, Some(10)),
+            (9, 6, Some(16)),
+            (0, 0, None),
+            (9, 5, None),
+        ];
+
+        #[cfg(not(target_feature = "avx2"))]
+        {
+            for (k1, k2, expected) in cases {
+                assert_eq!(
+                    scorer.retrieve_cost(U31::new(k1).unwrap(), U31::new(k2).unwrap()),
+                    expected
+                );
+            }
+        }
+
+        #[cfg(target_feature = "avx2")]
+        unsafe {
+            let mut k1_vec = [0i32; 8];
+            let mut k2_vec = [0i32; 8];
+            let mut expected_vec = [0i32; 8];
+
+            for (i, (k1, k2, expected)) in cases.iter().enumerate() {
+                k1_vec[i] = *k1 as i32;
+                k2_vec[i] = *k2 as i32;
+                expected_vec[i] = expected.unwrap_or(0);
+            }
+
+            let k1_simd = x86_64::_mm256_loadu_si256(k1_vec.as_ptr() as *const _);
+            let k2_simd = x86_64::_mm256_loadu_si256(k2_vec.as_ptr() as *const _);
+
+            let result_simd = scorer.retrieve_cost(k1_simd, k2_simd);
+
+            let mut result_vec = [0i32; 8];
+            x86_64::_mm256_storeu_si256(result_vec.as_mut_ptr() as *mut _, result_simd);
+
+            assert_eq!(result_vec, expected_vec);
+        }
+    }
+
+    #[test]
+    fn u31x8_serialize_roundtrip() {
+        let data = U31x8([
+            U31::new(0).unwrap(), U31::new(1).unwrap(), U31::new(2).unwrap(), U31::new(3).unwrap(),
+            U31::new(4).unwrap(), U31::new(5).unwrap(), U31::new(6).unwrap(), U31::new(7).unwrap(),
+        ]);
+
+        let bytes = rkyv::to_bytes::<Error>(&data).unwrap();
+        let decoded = rkyv::from_bytes::<U31x8, Error>(&bytes).unwrap();
+
+        assert_eq!(data, decoded);
     }
 
     #[test]
     fn accumulate_cost_empty_test() {
-        let builder = ScorerBuilder::new();
-        let scorer = builder.build();
-
+        let scorer = Scorer::default();
         assert_eq!(scorer.accumulate_cost(&[], &[]), 0);
     }
 
-    #[cfg(not(target_feature = "avx2"))]
     #[test]
-    fn u31x8_encode_decode_test() {
-        let data = U31x8([
-            U31::new(0).unwrap(),
-            U31::new(1).unwrap(),
-            U31::new(2).unwrap(),
-            U31::new(3).unwrap(),
-            U31::new(4).unwrap(),
-            U31::new(5).unwrap(),
-            U31::new(6).unwrap(),
-            U31::new(7).unwrap(),
-        ]);
-
-        let slice: &mut [u8] = &mut [0; 32];
-        let config = bincode::config::standard();
-
-        let mut encoder =
-            bincode::enc::EncoderImpl::new(bincode::enc::write::SliceWriter::new(slice), config);
-        data.encode(&mut encoder).unwrap();
-
-        let mut context = ();
-        let mut decoder = bincode::de::DecoderImpl::new(
-            bincode::de::read::SliceReader::new(slice),
-            config,
-            &mut context,
-        );
-        let decoded = U31x8::decode(&mut decoder).unwrap();
-
-        assert_eq!(data.0, decoded.0);
+    fn deserialize_invalid_bytes_should_fail() {
+        let invalid_bytes = vec![0u8; 4];
+        assert!(rkyv::from_bytes::<Scorer, Error>(&invalid_bytes).is_err());
     }
 }

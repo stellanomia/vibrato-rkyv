@@ -1,6 +1,6 @@
-use bincode::{Decode, Encode};
+use rkyv::{Archive, Deserialize, Serialize};
 
-#[derive(Default, Decode, Encode)]
+#[derive(Default, Archive, Serialize, Deserialize)]
 pub struct WordFeatures {
     features: Vec<String>,
 }
@@ -19,6 +19,13 @@ impl WordFeatures {
         }
     }
 
+    #[inline(always)]
+    pub fn get(&self, word_id: usize) -> &str {
+        &self.features[word_id]
+    }
+}
+
+impl ArchivedWordFeatures {
     #[inline(always)]
     pub fn get(&self, word_id: usize) -> &str {
         &self.features[word_id]

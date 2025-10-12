@@ -1,7 +1,9 @@
+use rkyv::{Archive, Deserialize, Serialize};
+
 use crate::dictionary::LexType;
 
 /// Identifier of a word.
-#[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Hash, Archive, Serialize, Deserialize)]
 pub struct WordIdx {
     /// Type of a lexicon that contains this word.
     pub lex_type: LexType,

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io::{BufRead, BufReader, Read};
 
-use bincode::{Decode, Encode};
+use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::errors::{Result, VibratoError};
 use crate::utils::FromU32;
@@ -21,7 +21,7 @@ const LENGTH_BITS: usize = 4;
 ///       invoke =  1 bit
 ///        group =  1 bit
 ///       length =  4 bits
-#[derive(Default, Clone, Copy, Decode, Encode)]
+#[derive(Default, Clone, Copy, Archive, Serialize, Deserialize)]
 pub struct CharInfo(u32);
 
 impl fmt::Debug for CharInfo {
@@ -101,7 +101,7 @@ struct CharRange {
 }
 
 /// Mapping from characters to their information.
-#[derive(Decode, Encode)]
+#[derive(Archive, Serialize, Deserialize)]
 pub struct CharProperty {
     chr2inf: Vec<CharInfo>,
     categories: Vec<String>, // indexed by category id
@@ -281,6 +281,26 @@ impl CharProperty {
     }
 }
 
+impl ArchivedCharProperty {
+    /// Gets the category ID from its name.
+    ///
+    /// This implementation is for the archived version of `CharProperty`.
+    pub fn cate_id(&self, category: &str) -> Option<u32> {
+        self.categories
+            .iter()
+            .position(|cate| cate == category)
+            .map(|id| u32::try_from(id).unwrap())
+    }
+
+    #[inline(always)]
+    pub fn char_info(&self, c: char) -> CharInfo {
+        let cinfo = self.chr2inf
+            .get(usize::from_u32(u32::from(c)))
+            .map_or_else(|| &self.chr2inf[0], |cinfo| cinfo);
+        CharInfo(cinfo.0.to_native())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -291,8 +311,8 @@ mod tests {
         let prop = CharProperty::from_reader(data.as_bytes()).unwrap();
         assert_eq!(prop.chr2inf[0x0020].cate_idset(), 0b10);
         assert_eq!(prop.chr2inf[0x0020].base_id(), 1);
-        assert_eq!(prop.chr2inf[0x0020].invoke(), false);
-        assert_eq!(prop.chr2inf[0x0020].group(), true);
+        assert!(!prop.chr2inf[0x0020].invoke());
+        assert!(prop.chr2inf[0x0020].group());
         assert_eq!(prop.chr2inf[0x0020].length(), 0);
     }
 

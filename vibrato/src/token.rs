@@ -152,13 +152,18 @@ mod tests {
         let char_def = "DEFAULT 0 1 0";
         let unk_def = "DEFAULT,0,0,100,*";
 
-        let dict = SystemDictionaryBuilder::from_readers(
-            lexicon_csv.as_bytes(),
-            matrix_def.as_bytes(),
-            char_def.as_bytes(),
-            unk_def.as_bytes(),
-        )
-        .unwrap();
+        let dict_inner =
+            SystemDictionaryBuilder::from_readers(
+                lexicon_csv.as_bytes(),
+                matrix_def.as_bytes(),
+                char_def.as_bytes(),
+                unk_def.as_bytes(),
+            ).unwrap();
+
+        let mut buffer = Vec::new();
+        dict_inner.write(&mut buffer).unwrap();
+
+        let dict = Dictionary::read(buffer.as_slice()).unwrap();
 
         let tokenizer = Tokenizer::new(dict);
         let mut worker = tokenizer.new_worker();

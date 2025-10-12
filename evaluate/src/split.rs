@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{error::ErrorKind, CommandFactory, Parser};
 use rand::seq::SliceRandom;
-use vibrato::trainer::Corpus;
+use vibrato_rkyv::trainer::Corpus;
 
 fn parse_ratio(val: &str) -> Result<f64, String> {
     let val = val.parse::<f64>().map_err(|e| e.to_string())?;

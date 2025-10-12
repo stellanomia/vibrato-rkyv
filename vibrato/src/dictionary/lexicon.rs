@@ -4,8 +4,8 @@ mod param;
 
 use std::io::Read;
 
-use bincode::{Decode, Encode};
 use csv_core::ReadFieldResult;
+use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::dictionary::connector::Connector;
 use crate::dictionary::lexicon::feature::WordFeatures;
@@ -20,7 +20,7 @@ use crate::utils::FromU32;
 pub use crate::dictionary::lexicon::param::WordParam;
 
 /// Lexicon of words.
-#[derive(Decode, Encode)]
+#[derive(Archive, Serialize, Deserialize)]
 pub struct Lexicon {
     map: WordMap,
     params: WordParams,
@@ -224,6 +224,37 @@ pub struct RawWordEntry<'a> {
     pub param: WordParam,
     pub feature: &'a str,
 }
+
+impl ArchivedLexicon {
+    #[inline(always)]
+    pub fn common_prefix_iterator<'a>(
+        &'a self,
+        input: &'a [char],
+    ) -> impl Iterator<Item = LexMatch> + 'a {
+        self.map
+            .common_prefix_iterator(input)
+            .map(move |(word_id, end_char)| {
+                LexMatch::new(
+                    WordIdx::new(self.lex_type.to_native(), word_id),
+                    self.params.get(usize::from_u32(word_id)),
+                    end_char,
+                )
+            })
+    }
+
+    #[inline(always)]
+    pub fn word_param(&self, word_idx: WordIdx) -> WordParam {
+        debug_assert_eq!(word_idx.lex_type, self.lex_type);
+        self.params.get(usize::from_u32(word_idx.word_id))
+    }
+
+    #[inline(always)]
+    pub fn word_feature(&self, word_idx: WordIdx) -> &str {
+        debug_assert_eq!(word_idx.lex_type, self.lex_type);
+        self.features.get(usize::from_u32(word_idx.word_id))
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

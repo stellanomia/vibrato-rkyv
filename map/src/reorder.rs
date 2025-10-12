@@ -3,8 +3,8 @@ use std::fs::File;
 use std::io::{BufRead, BufWriter, Write};
 use std::path::PathBuf;
 
-use vibrato::dictionary::Dictionary;
-use vibrato::Tokenizer;
+use vibrato_rkyv::dictionary::Dictionary;
+use vibrato_rkyv::Tokenizer;
 
 use clap::Parser;
 

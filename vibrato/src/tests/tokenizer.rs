@@ -1,5 +1,5 @@
 use crate::dictionary::SystemDictionaryBuilder;
-use crate::Tokenizer;
+use crate::{Dictionary, Tokenizer};
 
 const LEX_CSV: &str = include_str!("./resources/lex.csv");
 const USER_CSV: &str = include_str!("./resources/user.csv");
@@ -7,15 +7,35 @@ const MATRIX_DEF: &str = include_str!("./resources/matrix.def");
 const CHAR_DEF: &str = include_str!("./resources/char.def");
 const UNK_DEF: &str = include_str!("./resources/unk.def");
 
+fn build_test_dictionary(
+    lexicon_csv: &[u8],
+    matrix_def: &[u8],
+    char_def: &[u8],
+    unk_def: &[u8],
+) -> Dictionary {
+    let dict_inner =
+        SystemDictionaryBuilder::from_readers(
+            lexicon_csv,
+            matrix_def,
+            char_def,
+            unk_def
+        ).unwrap();
+
+    let mut buffer = Vec::new();
+    dict_inner.write(&mut buffer).unwrap();
+
+    Dictionary::read(buffer.as_slice()).unwrap()
+}
+
+
 #[test]
 fn test_tokenize_tokyo() {
-    let dict = SystemDictionaryBuilder::from_readers(
+    let dict = build_test_dictionary(
         LEX_CSV.as_bytes(),
         MATRIX_DEF.as_bytes(),
         CHAR_DEF.as_bytes(),
         UNK_DEF.as_bytes(),
-    )
-    .unwrap();
+    );
 
     let tokenizer = Tokenizer::new(dict);
     let mut worker = tokenizer.new_worker();
@@ -43,13 +63,12 @@ fn test_tokenize_tokyo() {
 
 #[test]
 fn test_tokenize_kyotokyo() {
-    let dict = SystemDictionaryBuilder::from_readers(
+    let dict = build_test_dictionary(
         LEX_CSV.as_bytes(),
         MATRIX_DEF.as_bytes(),
         CHAR_DEF.as_bytes(),
         UNK_DEF.as_bytes(),
-    )
-    .unwrap();
+    );
 
     let tokenizer = Tokenizer::new(dict);
     let mut worker = tokenizer.new_worker();
@@ -105,15 +124,25 @@ fn test_tokenize_kyotokyo() {
 
 #[test]
 fn test_tokenize_kyotokyo_with_user() {
-    let dict = SystemDictionaryBuilder::from_readers(
-        LEX_CSV.as_bytes(),
-        MATRIX_DEF.as_bytes(),
-        CHAR_DEF.as_bytes(),
-        UNK_DEF.as_bytes(),
-    )
-    .unwrap()
-    .reset_user_lexicon_from_reader(Some(USER_CSV.as_bytes()))
-    .unwrap();
+    let dict = {
+        let lexicon_csv = LEX_CSV.as_bytes();
+        let matrix_def = MATRIX_DEF.as_bytes();
+        let char_def = CHAR_DEF.as_bytes();
+        let unk_def = UNK_DEF.as_bytes();
+        let dict_inner =
+            SystemDictionaryBuilder::from_readers(
+                lexicon_csv,
+                matrix_def,
+                char_def,
+                unk_def
+            ).unwrap();
+
+        let mut buffer = Vec::new();
+        let dict_inner = dict_inner.reset_user_lexicon_from_reader(Some(USER_CSV.as_bytes())).unwrap();
+        dict_inner.write(&mut buffer).unwrap();
+
+        Dictionary::read(buffer.as_slice()).unwrap()
+    };
 
     let tokenizer = Tokenizer::new(dict);
     let mut worker = tokenizer.new_worker();
@@ -152,13 +181,12 @@ fn test_tokenize_kyotokyo_with_user() {
 
 #[test]
 fn test_tokenize_tokyoto_with_space() {
-    let dict = SystemDictionaryBuilder::from_readers(
+    let dict = build_test_dictionary(
         LEX_CSV.as_bytes(),
         MATRIX_DEF.as_bytes(),
         CHAR_DEF.as_bytes(),
         UNK_DEF.as_bytes(),
-    )
-    .unwrap();
+    );
 
     let tokenizer = Tokenizer::new(dict);
     let mut worker = tokenizer.new_worker();
@@ -208,13 +236,12 @@ fn test_tokenize_tokyoto_with_space() {
 
 #[test]
 fn test_tokenize_tokyoto_with_space_ignored() {
-    let dict = SystemDictionaryBuilder::from_readers(
+    let dict = build_test_dictionary(
         LEX_CSV.as_bytes(),
         MATRIX_DEF.as_bytes(),
         CHAR_DEF.as_bytes(),
         UNK_DEF.as_bytes(),
-    )
-    .unwrap();
+    );
 
     let tokenizer = Tokenizer::new(dict).ignore_space(true).unwrap();
     let mut worker = tokenizer.new_worker();
@@ -253,13 +280,12 @@ fn test_tokenize_tokyoto_with_space_ignored() {
 
 #[test]
 fn test_tokenize_tokyoto_with_spaces_ignored() {
-    let dict = SystemDictionaryBuilder::from_readers(
+    let dict = build_test_dictionary(
         LEX_CSV.as_bytes(),
         MATRIX_DEF.as_bytes(),
         CHAR_DEF.as_bytes(),
         UNK_DEF.as_bytes(),
-    )
-    .unwrap();
+    );
 
     let tokenizer = Tokenizer::new(dict).ignore_space(true).unwrap();
     let mut worker = tokenizer.new_worker();
@@ -298,13 +324,12 @@ fn test_tokenize_tokyoto_with_spaces_ignored() {
 
 #[test]
 fn test_tokenize_tokyoto_startswith_spaces_ignored() {
-    let dict = SystemDictionaryBuilder::from_readers(
+    let dict = build_test_dictionary(
         LEX_CSV.as_bytes(),
         MATRIX_DEF.as_bytes(),
         CHAR_DEF.as_bytes(),
         UNK_DEF.as_bytes(),
-    )
-    .unwrap();
+    );
 
     let tokenizer = Tokenizer::new(dict).ignore_space(true).unwrap();
     let mut worker = tokenizer.new_worker();
@@ -332,13 +357,12 @@ fn test_tokenize_tokyoto_startswith_spaces_ignored() {
 
 #[test]
 fn test_tokenize_tokyoto_endswith_spaces_ignored() {
-    let dict = SystemDictionaryBuilder::from_readers(
+    let dict = build_test_dictionary(
         LEX_CSV.as_bytes(),
         MATRIX_DEF.as_bytes(),
         CHAR_DEF.as_bytes(),
         UNK_DEF.as_bytes(),
-    )
-    .unwrap();
+    );
 
     let tokenizer = Tokenizer::new(dict).ignore_space(true).unwrap();
     let mut worker = tokenizer.new_worker();
@@ -366,13 +390,12 @@ fn test_tokenize_tokyoto_endswith_spaces_ignored() {
 
 #[test]
 fn test_tokenize_kampersanda() {
-    let dict = SystemDictionaryBuilder::from_readers(
+    let dict = build_test_dictionary(
         LEX_CSV.as_bytes(),
         MATRIX_DEF.as_bytes(),
         CHAR_DEF.as_bytes(),
         UNK_DEF.as_bytes(),
-    )
-    .unwrap();
+    );
 
     let tokenizer = Tokenizer::new(dict);
     let mut worker = tokenizer.new_worker();
@@ -397,15 +420,25 @@ fn test_tokenize_kampersanda() {
 
 #[test]
 fn test_tokenize_kampersanda_with_user() {
-    let dict = SystemDictionaryBuilder::from_readers(
-        LEX_CSV.as_bytes(),
-        MATRIX_DEF.as_bytes(),
-        CHAR_DEF.as_bytes(),
-        UNK_DEF.as_bytes(),
-    )
-    .unwrap()
-    .reset_user_lexicon_from_reader(Some(USER_CSV.as_bytes()))
-    .unwrap();
+    let dict = {
+        let lexicon_csv = LEX_CSV.as_bytes();
+        let matrix_def = MATRIX_DEF.as_bytes();
+        let char_def = CHAR_DEF.as_bytes();
+        let unk_def = UNK_DEF.as_bytes();
+        let dict_inner =
+            SystemDictionaryBuilder::from_readers(
+                lexicon_csv,
+                matrix_def,
+                char_def,
+                unk_def
+            ).unwrap();
+
+        let mut buffer = Vec::new();
+        let dict_inner = dict_inner.reset_user_lexicon_from_reader(Some(USER_CSV.as_bytes())).unwrap();
+        dict_inner.write(&mut buffer).unwrap();
+
+        Dictionary::read(buffer.as_slice()).unwrap()
+    };
 
     let tokenizer = Tokenizer::new(dict);
     let mut worker = tokenizer.new_worker();
@@ -430,13 +463,12 @@ fn test_tokenize_kampersanda_with_user() {
 
 #[test]
 fn test_tokenize_kampersanda_with_max_grouping() {
-    let dict = SystemDictionaryBuilder::from_readers(
+    let dict = build_test_dictionary(
         LEX_CSV.as_bytes(),
         MATRIX_DEF.as_bytes(),
         CHAR_DEF.as_bytes(),
         UNK_DEF.as_bytes(),
-    )
-    .unwrap();
+    );
 
     let tokenizer = Tokenizer::new(dict)
         .ignore_space(true)
@@ -475,13 +507,12 @@ fn test_tokenize_kampersanda_with_max_grouping() {
 
 #[test]
 fn test_tokenize_tokyoken() {
-    let dict = SystemDictionaryBuilder::from_readers(
+    let dict = build_test_dictionary(
         LEX_CSV.as_bytes(),
         MATRIX_DEF.as_bytes(),
         CHAR_DEF.as_bytes(),
         UNK_DEF.as_bytes(),
-    )
-    .unwrap();
+    );
 
     let tokenizer = Tokenizer::new(dict);
     let mut worker = tokenizer.new_worker();
@@ -493,13 +524,12 @@ fn test_tokenize_tokyoken() {
 /// This test is to check if the category order in char.def is preserved.
 #[test]
 fn test_tokenize_kanjinumeric() {
-    let dict = SystemDictionaryBuilder::from_readers(
+    let dict = build_test_dictionary(
         LEX_CSV.as_bytes(),
         MATRIX_DEF.as_bytes(),
         CHAR_DEF.as_bytes(),
         UNK_DEF.as_bytes(),
-    )
-    .unwrap();
+    );
 
     let tokenizer = Tokenizer::new(dict);
     let mut worker = tokenizer.new_worker();
@@ -518,13 +548,12 @@ fn test_tokenize_kanjinumeric() {
 
 #[test]
 fn test_tokenize_empty() {
-    let dict = SystemDictionaryBuilder::from_readers(
+    let dict = build_test_dictionary(
         LEX_CSV.as_bytes(),
         MATRIX_DEF.as_bytes(),
         CHAR_DEF.as_bytes(),
         UNK_DEF.as_bytes(),
-    )
-    .unwrap();
+    );
 
     let tokenizer = Tokenizer::new(dict);
     let mut worker = tokenizer.new_worker();
@@ -535,13 +564,12 @@ fn test_tokenize_empty() {
 
 #[test]
 fn test_tokenize_repeat() {
-    let dict = SystemDictionaryBuilder::from_readers(
+    let dict = build_test_dictionary(
         LEX_CSV.as_bytes(),
         MATRIX_DEF.as_bytes(),
         CHAR_DEF.as_bytes(),
         UNK_DEF.as_bytes(),
-    )
-    .unwrap();
+    );
 
     let tokenizer = Tokenizer::new(dict);
     let mut worker = tokenizer.new_worker();

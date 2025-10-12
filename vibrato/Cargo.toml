@@ -1,30 +1,33 @@
 [package]
-name = "vibrato"
+name = "vibrato-rkyv"
 # NOTE(kampersanda): Developers should check compatibility with MODEL_MAGIC in dictionary.rs.
-version = "0.5.2"
-edition = "2021"
-rust-version = "1.85"
+version = "0.6.0"
+edition = "2024"
+rust-version = "1.90"
 authors = [
+    "stellanomia <fulmlumo@gmail.com>",
     "Shunsuke Kanda <shnsk.knd@gmail.com>",
     "Koichi Akabe <vbkaisetsu@gmail.com>",
 ]
-description = "Vibrato: viterbi-based accelerated tokenizer"
+description = "Vibrato: viterbi-based accelerated tokenizer with rkyv support for fast dictionary loading."
 license = "MIT OR Apache-2.0"
-homepage = "https://github.com/daac-tools/vibrato"
-repository = "https://github.com/daac-tools/vibrato"
+homepage = "https://github.com/stellanomia/vibrato-rkyv"
+repository = "https://github.com/stellanomia/vibrato-rkyv"
 readme = "README.md"
 keywords = ["japanese", "analyzer", "tokenizer", "morphological"]
 categories = ["text-processing"]
 
 [dependencies]
-bincode = { version = "2.0.1", default-features = false, features = ["std", "alloc", "derive"] }  # MIT
-crawdad = "0.3.0" # MIT or Apache-2.0
+crawdad-rkyv = "0.4.0-rkyv.1"
 csv-core = "0.1.10" # Unlicense or MIT
-hashbrown = "0.12" # MIT or Apache-2.0
+hashbrown = "0.15.5"
+memmap2 = "0.9.8"
 regex = "1" # MIT or Apache-2.0
-rucrf = { version = "0.3.3", optional = true } # MIT or Apache-2.0
+rkyv = { version = "0.8.12", features = ["hashbrown-0_15"] }
+rucrf-rkyv = { version = "0.3.3-rkyv.1", optional = true }
+thiserror = "2.0.17"
 
 [features]
 default = ["train"]
 
-train = ["rucrf"]
+train = ["rucrf-rkyv"]

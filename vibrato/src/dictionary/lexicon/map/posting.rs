@@ -1,9 +1,10 @@
-use bincode::{Decode, Encode};
+use rkyv::rend::u32_le;
+use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::errors::Result;
 use crate::utils::FromU32;
 
-#[derive(Decode, Encode)]
+#[derive(Archive, Serialize, Deserialize)]
 pub struct Postings {
     // Sets of ids are stored by interleaving their length and values.
     // Then, 8 bits would be sufficient to represent the length in most cases, and
@@ -42,5 +43,13 @@ impl PostingsBuilder {
     #[allow(clippy::missing_const_for_fn)]
     pub fn build(self) -> Postings {
         Postings { data: self.data }
+    }
+}
+
+impl ArchivedPostings {
+    #[inline(always)]
+    pub fn ids(&'_ self, i: usize) -> impl Iterator<Item = u32_le> + '_ {
+        let len = usize::from_u32(self.data[i].to_native());
+        self.data[i + 1..i + 1 + len].iter().cloned()
     }
 }

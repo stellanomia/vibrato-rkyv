@@ -2,7 +2,7 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use clap::Parser;
-use vibrato::trainer::{Corpus, Trainer, TrainerConfig};
+use vibrato_rkyv::trainer::{Corpus, Trainer, TrainerConfig};
 
 #[derive(Parser, Debug)]
 #[clap(name = "train", about = "Model trainer")]

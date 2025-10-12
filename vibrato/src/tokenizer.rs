@@ -2,8 +2,11 @@
 pub(crate) mod lattice;
 pub mod worker;
 
-use crate::dictionary::connector::{ConnectorCost, ConnectorWrapper};
-use crate::dictionary::Dictionary;
+use rkyv::Archived;
+
+use crate::Dictionary;
+use crate::dictionary::connector::{ArchivedConnectorWrapper, ConnectorCost};
+use crate::dictionary::DictionaryInner;
 use crate::errors::{Result, VibratoError};
 use crate::sentence::Sentence;
 use crate::tokenizer::lattice::Lattice;
@@ -54,6 +57,7 @@ impl Tokenizer {
         Ok(self)
     }
 
+
     /// Specifies the maximum grouping length for unknown words.
     /// By default, the length is infinity.
     ///
@@ -74,7 +78,7 @@ impl Tokenizer {
     }
 
     /// Gets the reference to the dictionary.
-    pub const fn dictionary(&self) -> &Dictionary {
+    pub fn dictionary(&self) -> &Archived<DictionaryInner> {
         &self.dict
     }
 
@@ -85,9 +89,9 @@ impl Tokenizer {
 
     pub(crate) fn build_lattice(&self, sent: &Sentence, lattice: &mut Lattice) {
         match self.dict.connector() {
-            ConnectorWrapper::Matrix(c) => self.build_lattice_inner(sent, lattice, c),
-            ConnectorWrapper::Raw(c) => self.build_lattice_inner(sent, lattice, c),
-            ConnectorWrapper::Dual(c) => self.build_lattice_inner(sent, lattice, c),
+            ArchivedConnectorWrapper::Matrix(c) => self.build_lattice_inner(sent, lattice, c),
+            ArchivedConnectorWrapper::Raw(c) => self.build_lattice_inner(sent, lattice, c),
+            ArchivedConnectorWrapper::Dual(c) => self.build_lattice_inner(sent, lattice, c),
         }
     }
 
@@ -152,7 +156,7 @@ impl Tokenizer {
 
         let suffix = &sent.chars()[start_word..];
 
-        if let Some(user_lexicon) = self.dict.user_lexicon() {
+        if let Some(user_lexicon) = self.dict.user_lexicon().as_ref() {
             for m in user_lexicon.common_prefix_iterator(suffix) {
                 debug_assert!(start_word + m.end_char <= sent.len_char());
                 lattice.insert_node(
@@ -205,6 +209,26 @@ mod tests {
 
     use crate::dictionary::SystemDictionaryBuilder;
 
+    fn build_test_dictionary(
+        lexicon_csv: &[u8],
+        matrix_def: &[u8],
+        char_def: &[u8],
+        unk_def: &[u8],
+    ) -> Dictionary {
+        let dict_inner =
+            SystemDictionaryBuilder::from_readers(
+                lexicon_csv,
+                matrix_def,
+                char_def,
+                unk_def
+            ).unwrap();
+
+        let mut buffer = Vec::new();
+        dict_inner.write(&mut buffer).unwrap();
+
+        Dictionary::read(buffer.as_slice()).unwrap()
+    }
+
     #[test]
     fn test_tokenize_1() {
         let lexicon_csv = "自然,0,0,1,sizen
@@ -216,13 +240,12 @@ mod tests {
         let char_def = "DEFAULT 0 1 0";
         let unk_def = "DEFAULT,0,0,100,*";
 
-        let dict = SystemDictionaryBuilder::from_readers(
+        let dict = build_test_dictionary(
             lexicon_csv.as_bytes(),
             matrix_def.as_bytes(),
             char_def.as_bytes(),
             unk_def.as_bytes(),
-        )
-        .unwrap();
+        );
 
         let tokenizer = Tokenizer::new(dict);
         let mut worker = tokenizer.new_worker();
@@ -259,13 +282,12 @@ mod tests {
         let char_def = "DEFAULT 0 1 0";
         let unk_def = "DEFAULT,0,0,100,*";
 
-        let dict = SystemDictionaryBuilder::from_readers(
+        let dict = build_test_dictionary(
             lexicon_csv.as_bytes(),
             matrix_def.as_bytes(),
             char_def.as_bytes(),
             unk_def.as_bytes(),
-        )
-        .unwrap();
+        );
 
         let tokenizer = Tokenizer::new(dict);
         let mut worker = tokenizer.new_worker();
@@ -302,13 +324,12 @@ mod tests {
         let char_def = "DEFAULT 0 0 3";
         let unk_def = "DEFAULT,0,0,100,*";
 
-        let dict = SystemDictionaryBuilder::from_readers(
+        let dict = build_test_dictionary(
             lexicon_csv.as_bytes(),
             matrix_def.as_bytes(),
             char_def.as_bytes(),
             unk_def.as_bytes(),
-        )
-        .unwrap();
+        );
 
         let tokenizer = Tokenizer::new(dict);
         let mut worker = tokenizer.new_worker();
@@ -345,13 +366,12 @@ mod tests {
         let char_def = "DEFAULT 0 0 3";
         let unk_def = "DEFAULT,0,0,100,*";
 
-        let dict = SystemDictionaryBuilder::from_readers(
+        let dict = build_test_dictionary(
             lexicon_csv.as_bytes(),
             matrix_def.as_bytes(),
             char_def.as_bytes(),
             unk_def.as_bytes(),
-        )
-        .unwrap();
+        );
 
         let tokenizer = Tokenizer::new(dict);
         let mut worker = tokenizer.new_worker();

@@ -5,8 +5,8 @@
 //! ```
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use std::fs::File;
-//! use vibrato::trainer::{Corpus, Trainer, TrainerConfig};
-//! use vibrato::{SystemDictionaryBuilder, Tokenizer};
+//! use vibrato_rkyv::trainer::{Corpus, Trainer, TrainerConfig};
+//! use vibrato_rkyv::{Dictionary, SystemDictionaryBuilder, Tokenizer};
 //!
 //! // Loads configurations
 //! let lexicon_rdr = File::open("src/tests/resources/train_lex.csv")?;
@@ -49,13 +49,18 @@
 //! )?;
 //!
 //! // Loads trained model
-//! let char_prop_rdr = File::open("src/tests/resources/char.def")?;
-//! let dict = SystemDictionaryBuilder::from_readers(
+//! let char_prop_rdr_again = File::open("src/tests/resources/char.def")?;
+//! let dict_inner = SystemDictionaryBuilder::from_readers(
 //!     &*lexicon_trained,
 //!     &*connector_trained,
-//!     char_prop_rdr,
+//!     char_prop_rdr_again,
 //!     &*unk_handler_trained,
 //! )?;
+//!
+//! let mut buffer = Vec::new();
+//! dict_inner.write(&mut buffer)?;
+//!
+//! let dict = Dictionary::read(buffer.as_slice())?;
 //!
 //! let tokenizer = Tokenizer::new(dict);
 //! let mut worker = tokenizer.new_worker();
@@ -76,7 +81,7 @@ mod model;
 use std::num::NonZeroU32;
 
 use hashbrown::{HashMap, HashSet};
-use rucrf::{Edge, FeatureProvider, FeatureSet, Lattice};
+use rucrf_rkyv::{Edge, FeatureProvider, FeatureSet, Lattice};
 
 use crate::dictionary::word_idx::WordIdx;
 use crate::dictionary::LexType;
@@ -328,11 +333,10 @@ impl Trainer {
                 let target = pos + m.end_char;
                 let edge = Edge::new(target, label_id);
                 // Skips adding if the edge is already added as a positive edge.
-                if let Some(first_edge) = lattice.nodes()[pos].edges().first() {
-                    if edge == *first_edge {
+                if let Some(first_edge) = lattice.nodes()[pos].edges().first()
+                    && edge == *first_edge {
                         continue;
                     }
-                }
                 lattice.add_edge(pos, edge).unwrap();
             }
 
@@ -348,11 +352,10 @@ impl Trainer {
                     let target = w.end_char();
                     let edge = Edge::new(target, label_id);
                     // Skips adding if the edge is already added as a positive edge.
-                    if let Some(first_edge) = lattice.nodes()[pos].edges().first() {
-                        if edge == *first_edge {
+                    if let Some(first_edge) = lattice.nodes()[pos].edges().first()
+                        && edge == *first_edge {
                             return;
                         }
-                    }
                     lattice.add_edge(pos, edge).unwrap();
                 },
             );
@@ -378,8 +381,8 @@ impl Trainer {
             lattices.push(self.build_lattice(example)?);
         }
 
-        let trainer = rucrf::Trainer::new()
-            .regularization(rucrf::Regularization::L1, self.regularization_cost)
+        let trainer = rucrf_rkyv::Trainer::new()
+            .regularization(rucrf_rkyv::Regularization::L1, self.regularization_cost)
             .unwrap()
             .max_iter(self.max_iter)
             .unwrap()
@@ -439,11 +442,10 @@ impl Trainer {
                 .left_feature_ids
                 .get(k)
                 .unwrap();
-            if let Some(x) = model.bigram_weight_indices().get(usize::from_u32(id.get())) {
-                if x.is_empty() {
+            if let Some(x) = model.bigram_weight_indices().get(usize::from_u32(id.get()))
+                && x.is_empty() {
                     self.config.feature_extractor.left_feature_ids.remove(k);
                 }
-            }
         }
         for k in &right_feature_keys {
             let id = self

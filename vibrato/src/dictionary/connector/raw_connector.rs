@@ -2,13 +2,13 @@ pub mod scorer;
 
 use std::io::{prelude::*, BufReader, Read};
 
-use bincode::{Decode, Encode};
 use hashbrown::HashMap;
+use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::dictionary::connector::raw_connector::scorer::{
-    Scorer, ScorerBuilder, U31x8, SIMD_SIZE,
+    ArchivedU31x8, SIMD_SIZE, Scorer, ScorerBuilder, U31x8
 };
-use crate::dictionary::connector::{Connector, ConnectorCost};
+use crate::dictionary::connector::{Connector, ConnectorCost, ConnectorView};
 use crate::dictionary::mapper::ConnIdMapper;
 use crate::errors::{Result, VibratoError};
 use crate::num::U31;
@@ -18,7 +18,7 @@ use crate::utils;
 /// that the value does not become a negative value.
 pub const INVALID_FEATURE_ID: U31 = U31::MAX;
 
-#[derive(Decode, Encode)]
+#[derive(Archive, Serialize, Deserialize)]
 pub struct RawConnector {
     right_feat_ids: Vec<U31x8>,
     left_feat_ids: Vec<U31x8>,
@@ -109,7 +109,7 @@ impl RawConnector {
     }
 }
 
-impl Connector for RawConnector {
+impl ConnectorView for RawConnector {
     #[inline(always)]
     fn num_left(&self) -> usize {
         self.left_feat_ids.len() / self.feat_template_size
@@ -119,7 +119,9 @@ impl Connector for RawConnector {
     fn num_right(&self) -> usize {
         self.right_feat_ids.len() / self.feat_template_size
     }
+}
 
+impl Connector for RawConnector {
     fn map_connection_ids(&mut self, mapper: &ConnIdMapper) {
         assert_eq!(mapper.num_left(), self.num_left());
         assert_eq!(mapper.num_right(), self.num_right());
@@ -318,6 +320,42 @@ impl RawConnectorBuilder {
         }
         let msg = format!("The format must be right/left<tab>cost, {line}");
         Err(VibratoError::invalid_format("bigram.cost", msg))
+    }
+}
+
+impl ArchivedRawConnector {
+    #[inline(always)]
+    fn right_feature_ids(&self, right_id: u16) -> &[ArchivedU31x8] {
+        &self.right_feat_ids[usize::from(right_id) * self.feat_template_size.to_native() as usize
+            ..usize::from(right_id + 1) * self.feat_template_size.to_native() as usize]
+    }
+
+    #[inline(always)]
+    fn left_feature_ids(&self, left_id: u16) -> &[ArchivedU31x8] {
+        &self.left_feat_ids[usize::from(left_id) * self.feat_template_size.to_native() as usize
+            ..usize::from(left_id + 1) * self.feat_template_size.to_native() as usize]
+    }
+}
+
+impl ConnectorView for ArchivedRawConnector {
+    #[inline(always)]
+    fn num_left(&self) -> usize {
+        self.left_feat_ids.len() / self.feat_template_size.to_native() as usize
+    }
+
+    #[inline(always)]
+    fn num_right(&self) -> usize {
+        self.right_feat_ids.len() / self.feat_template_size.to_native() as usize
+    }
+}
+
+impl ConnectorCost for ArchivedRawConnector {
+    #[inline(always)]
+    fn cost(&self, right_id: u16, left_id: u16) -> i32 {
+        self.scorer.accumulate_cost(
+            self.right_feature_ids(right_id),
+            self.left_feature_ids(left_id),
+        )
     }
 }
 

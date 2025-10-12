@@ -1,15 +1,13 @@
-# 🎤 vibrato: VIterbi-Based acceleRAted TOkenizer
+# 🎤 vibrato-rkyv: VIterbi-Based acceleRAted TOkenizer with rkyv
 
-[![Crates.io](https://img.shields.io/crates/v/vibrato)](https://crates.io/crates/vibrato)
-[![Documentation](https://docs.rs/vibrato/badge.svg)](https://docs.rs/vibrato)
+**Note:** This is a fork of the original [daac-tools/vibrato](https://github.com/daac-tools/vibrato) modified to use the `rkyv` serialization framework for significantly faster dictionary loading.
+
+[![Crates.io](https://img.shields.io/crates/v/vibrato-rkyv)](https://crates.io/crates/vibrato-rkyv)
+[![Documentation](https://docs.rs/vibrato-rkyv/badge.svg)](https://docs.rs/vibrato-rkyv)
+[![Build Status](https://github.com/stellanomia/vibrato-rkyv/actions/workflows/rust.yml/badge.svg)](https://github.com/stellanomia/vibrato-rkyv/actions)
 [![Build Status](https://github.com/daac-tools/vibrato/actions/workflows/rust.yml/badge.svg)](https://github.com/daac-tools/vibrato/actions)
-[![Slack](https://img.shields.io/badge/join-chat-brightgreen?logo=slack)](https://join.slack.com/t/daac-tools/shared_invite/zt-1pwwqbcz4-KxL95Nam9VinpPlzUpEGyA)
 
 Vibrato is a fast implementation of tokenization (or morphological analysis) based on the Viterbi algorithm.
-
-A Python wrapper is also available [here](https://github.com/daac-tools/python-vibrato).
-
-[Wasm Demo](https://vibrato-demo.pages.dev/) (takes a little time to load the model.)
 
 ## Features
 
@@ -43,27 +41,21 @@ First of all, install `rustc` and `cargo` following the [official instructions](
 
 ### 1. Dictionary preparation
 
-You can easily get started with Vibrato by downloading a precompiled dictionary.
-[The Releases page](https://github.com/daac-tools/vibrato/releases) distributes
-several precompiled dictionaries from different resources.
+You can easily get started by downloading a precompiled dictionary compatible with this version.
 
-Here, consider to use [mecab-ipadic v2.7.0](https://taku910.github.io/mecab/).
-(Specify an appropriate Vibrato release tag to `VERSION` such as `v0.5.0`.)
+You must compile system dictionaries from raw resources using the `compile` command included in this repository. Dictionaries compiled with the original `vibrato` are **not compatible**.
 
 ```
-$ wget https://github.com/daac-tools/vibrato/releases/download/VERSION/ipadic-mecab-2_7_0.tar.xz
-$ tar xf ipadic-mecab-2_7_0.tar.xz
+# Example of compiling a dictionary
+$ cargo run --release -p compile -- -i path/to/lex.csv ... -o system.dic
 ```
-
-You can also compile or train system dictionaries from your own resources.
-See the [docs](./docs/) for more advanced usage.
 
 ### 2. Tokenization
 
-To tokenize sentences using the system dictionary, run the following command.
+To tokenize sentences using the system dictionary, run the following command. The dictionary is loaded from the file path.
 
 ```
-$ echo '本とカレーの街神保町へようこそ。' | cargo run --release -p tokenize -- -i ipadic-mecab-2_7_0/system.dic.zst
+$ echo '本とカレーの街神保町へようこそ。' | cargo run --release -p tokenize -- -i path/to/system.dic
 ```
 
 The resultant tokens will be output in the Mecab format.
@@ -90,13 +82,22 @@ $ echo '本とカレーの街神保町へようこそ。' | cargo run --release 
 ```
 
 ### Notes for Vibrato APIs
-
-The distributed models are compressed in zstd format.
-If you want to load these compressed models with the `vibrato` API,
-you must decompress them outside of the API.
+This version of Vibrato is optimized for loading dictionaries from a file path using memory-mapping.
 
 ```rust
-// Requires zstd crate or ruzstd crate
+use vibrato_rkyv::Dictionary;
+
+// Recommended: Load from path for zero-copy deserialization
+let dict = Dictionary::from_path("path/to/system.dic")?;
+```
+
+If you need to load from a reader (e.g., a compressed stream), all data will be loaded into memory.
+
+```rust
+use std::fs::File;
+use vibrato_rkyv::Dictionary;
+
+// Requires zstd crate crate
 let reader = zstd::Decoder::new(File::open("path/to/system.dic.zst")?)?;
 let dict = Dictionary::read(reader)?;
 ```
@@ -150,29 +151,34 @@ However, this would be not an essential problem.
 
 ### User dictionary
 
-You can use your user dictionary along with the system dictionary.
-The user dictionary must be in the CSV format.
+**IMPORTANT:** In this `rkyv`-based version, the user dictionary is **no longer a command-line option** for the `tokenize` command.
+
+Due to the immutable, zero-copy nature of the dictionary, user dictionaries must be **compiled into the system dictionary beforehand**.
+
+To use a user dictionary, you need to create a `DictionaryInner` object that includes the user dictionary and then serialize it. The `compile` command or a custom build script can be used for this purpose.
+
+For example, you can create a combined dictionary using a build script like this:
+
+```rust
+// A simplified example of a build script
+
+use std::fs::File;
+use vibrato_rkyv::{SystemDictionaryBuilder, Dictionary};
+
+// 1. Build a DictionaryInner from the system dictionary components
+let dict_inner = SystemDictionaryBuilder::from_readers(...)?.reset_user_lexicon_from_reader(
+    Some(File::open("user.csv")?)
+)?;
+
+// 2. Write the combined DictionaryInner to a file
+let mut file = File::create("system_with_user.dic")?;
+dict_inner.write(&mut file)?;
+```
+
+Then, use the generated `system_with_user.dic` with the `tokenize` command.
 
 ```
-<surface>,<left-id>,<right-id>,<cost>,<features...>
-```
-
-The first four columns are always required.
-The others (i.e., `<features...>`) are optional.
-
-For example,
-
-```
-$ cat user.csv
-神保町,1293,1293,334,カスタム名詞,ジンボチョウ
-本とカレーの街,1293,1293,0,カスタム名詞,ホントカレーノマチ
-ようこそ,3,3,-1000,感動詞,ヨーコソ,Welcome,欢迎欢迎,Benvenuto,Willkommen
-```
-
-To use the user dictionary, specify the file with the `-u` argument.
-
-```
-$ echo '本とカレーの街神保町へようこそ。' | cargo run --release -p tokenize -- -i ipadic-mecab-2_7_0/system.dic.zst -u user.csv
+$ echo '本とカレーの街神保町へようこそ。' | cargo run --release -p tokenize -- -i system_with_user.dic
 本とカレーの街	カスタム名詞,ホントカレーノマチ
 神保町	カスタム名詞,ジンボチョウ
 へ	助詞,格助詞,一般,*,*,*,へ,ヘ,エ
@@ -180,17 +186,9 @@ $ echo '本とカレーの街神保町へようこそ。' | cargo run --release 
 。	記号,句点,*,*,*,*,。,。,。
 EOS
 ```
-
 ## More advanced usages
 
 The directory [docs](./docs/) provides descriptions of more advanced usages such as training or benchmarking.
-
-## Slack
-
-We have a Slack workspace for developers and users to ask questions and discuss a variety of topics.
-
- * https://daac-tools.slack.com/
- * Please get an invitation from [here](https://join.slack.com/t/daac-tools/shared_invite/zt-1pwwqbcz4-KxL95Nam9VinpPlzUpEGyA).
 
 ## License
 
@@ -202,10 +200,6 @@ Licensed under either of
    ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
 
 at your option.
-
-## Contribution
-
-See [the guidelines](./CONTRIBUTING.md).
 
 ## References
 

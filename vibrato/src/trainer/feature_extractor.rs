@@ -1,28 +1,24 @@
 use std::num::NonZeroU32;
 use std::ops::Range;
 
-use bincode::{
-    de::Decoder,
-    enc::Encoder,
-    error::{DecodeError, EncodeError},
-    Decode, Encode,
-};
 use hashbrown::HashMap;
 use regex::Regex;
+use rkyv::{Archive, Deserialize, Serialize};
 
-#[derive(Debug, Decode, Encode)]
+#[derive(Debug, Archive, Serialize, Deserialize)]
 enum FeatureType {
     Index(usize),
     CharacterType,
 }
 
-#[derive(Debug, Decode, Encode)]
+#[derive(Debug, Archive, Serialize, Deserialize)]
 struct ParsedTemplate {
     raw_template: String,
     required_indices: Vec<usize>,
     captures: Vec<(Range<usize>, FeatureType)>,
 }
 
+#[derive(Archive, Serialize, Deserialize)]
 pub struct FeatureExtractor {
     pub unigram_feature_ids: HashMap<String, NonZeroU32>,
     pub left_feature_ids: HashMap<String, NonZeroU32>,
@@ -246,52 +242,6 @@ impl FeatureExtractor {
 
     pub const fn right_feature_ids(&self) -> &HashMap<String, NonZeroU32> {
         &self.right_feature_ids
-    }
-}
-
-impl<Context> Decode<Context> for FeatureExtractor {
-    fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
-        let unigram_feature_ids: Vec<(String, NonZeroU32)> = Decode::decode(decoder)?;
-        let left_feature_ids: Vec<(String, NonZeroU32)> = Decode::decode(decoder)?;
-        let right_feature_ids: Vec<(String, NonZeroU32)> = Decode::decode(decoder)?;
-        let unigram_next_id = Decode::decode(decoder)?;
-        let left_next_id = Decode::decode(decoder)?;
-        let right_next_id = Decode::decode(decoder)?;
-        let unigram_templates = Decode::decode(decoder)?;
-        let left_templates = Decode::decode(decoder)?;
-        let right_templates = Decode::decode(decoder)?;
-        Ok(Self {
-            unigram_feature_ids: unigram_feature_ids.into_iter().collect(),
-            left_feature_ids: left_feature_ids.into_iter().collect(),
-            right_feature_ids: right_feature_ids.into_iter().collect(),
-            unigram_next_id,
-            left_next_id,
-            right_next_id,
-            unigram_templates,
-            left_templates,
-            right_templates,
-        })
-    }
-}
-
-impl Encode for FeatureExtractor {
-    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
-        let unigram_feature_ids: Vec<(String, NonZeroU32)> =
-            self.unigram_feature_ids.clone().into_iter().collect();
-        let left_feature_ids: Vec<(String, NonZeroU32)> =
-            self.left_feature_ids.clone().into_iter().collect();
-        let right_feature_ids: Vec<(String, NonZeroU32)> =
-            self.right_feature_ids.clone().into_iter().collect();
-        Encode::encode(&unigram_feature_ids, encoder)?;
-        Encode::encode(&left_feature_ids, encoder)?;
-        Encode::encode(&right_feature_ids, encoder)?;
-        Encode::encode(&self.unigram_next_id, encoder)?;
-        Encode::encode(&self.left_next_id, encoder)?;
-        Encode::encode(&self.right_next_id, encoder)?;
-        Encode::encode(&self.unigram_templates, encoder)?;
-        Encode::encode(&self.left_templates, encoder)?;
-        Encode::encode(&self.right_templates, encoder)?;
-        Ok(())
     }
 }
 

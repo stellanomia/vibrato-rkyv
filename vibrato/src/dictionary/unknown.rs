@@ -1,6 +1,6 @@
 use std::io::Read;
 
-use bincode::{Decode, Encode};
+use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::dictionary::character::{CharInfo, CharProperty};
 use crate::dictionary::connector::Connector;
@@ -17,7 +17,7 @@ use crate::utils;
 
 use crate::common::MAX_SENTENCE_LENGTH;
 
-#[derive(Default, Debug, Clone, Decode, Encode, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize)]
 pub struct UnkEntry {
     pub cate_id: u16,
     pub left_id: u16,
@@ -59,7 +59,7 @@ impl UnkWord {
 }
 
 /// Handler of unknown words.
-#[derive(Decode, Encode)]
+#[derive(Archive, Deserialize, Serialize)]
 pub struct UnkHandler {
     offsets: Vec<usize>, // indexed by category id
     entries: Vec<UnkEntry>,
@@ -263,12 +263,104 @@ impl UnkHandler {
     }
 }
 
+impl ArchivedUnkHandler {
+    pub fn gen_unk_words<F>(
+        &self,
+        sent: &Sentence,
+        start_char: usize,
+        mut has_matched: bool,
+        max_grouping_len: Option<usize>,
+        mut f: F,
+    ) where
+        F: FnMut(UnkWord),
+    {
+        let cinfo = sent.char_info(start_char);
+        if has_matched && !cinfo.invoke() {
+            return;
+        }
+
+        let mut grouped = false;
+        let groupable = sent.groupable(start_char);
+        debug_assert_ne!(groupable, 0);
+
+        if cinfo.group() {
+            grouped = true;
+            // Checks the number of grouped characters other than the first one
+            // following the original MeCab implementation.
+            let max_grouping_len = max_grouping_len.map_or(MAX_SENTENCE_LENGTH, |l| l);
+            // Note: Do NOT write `max_grouping_len+1` to avoid overflow.
+            if groupable - 1 <= max_grouping_len {
+                f = self.scan_entries(start_char, start_char + groupable, cinfo, f);
+                has_matched = true;
+            }
+        }
+
+        for i in 1..=usize::from(cinfo.length()).min(groupable) {
+            if grouped && i == groupable {
+                continue;
+            }
+            let end_char = start_char + i;
+            if sent.len_char() < end_char {
+                break;
+            }
+            f = self.scan_entries(start_char, end_char, cinfo, f);
+            has_matched = true;
+        }
+
+        // Generates at least one unknown word.
+        if !has_matched {
+            self.scan_entries(start_char, start_char + 1, cinfo, f);
+        }
+    }
+
+    #[inline(always)]
+    fn scan_entries<F>(&self, start_char: usize, end_char: usize, cinfo: CharInfo, mut f: F) -> F
+    where
+        F: FnMut(UnkWord),
+    {
+        let start = self.offsets[usize::from_u32(cinfo.base_id())].to_native();
+        let end = self.offsets[usize::from_u32(cinfo.base_id()) + 1].to_native();
+        for word_id in start..end {
+            let e = &self.entries[word_id as usize];
+            f(UnkWord {
+                start_char,
+                end_char,
+                left_id: e.left_id.to_native(),
+                right_id: e.right_id.to_native(),
+                word_cost: e.word_cost.to_native(),
+                word_id: word_id as u16,
+            });
+        }
+        f
+    }
+
+    #[inline(always)]
+    pub fn word_param(&self, word_idx: WordIdx) -> WordParam {
+        debug_assert_eq!(word_idx.lex_type, LexType::Unknown);
+        let e = &self.entries[usize::from_u32(word_idx.word_id)];
+        WordParam::new(e.left_id.to_native(), e.right_id.to_native(), e.word_cost.to_native())
+    }
+
+    #[inline(always)]
+    pub fn word_feature(&self, word_idx: WordIdx) -> &str {
+        debug_assert_eq!(word_idx.lex_type, LexType::Unknown);
+        &self.entries[usize::from_u32(word_idx.word_id)].feature
+    }
+
+    #[cfg(feature = "train")]
+    #[inline(always)]
+    pub fn word_cate_id(&self, word_idx: WordIdx) -> u16 {
+        debug_assert_eq!(word_idx.lex_type, LexType::Unknown);
+        self.entries[usize::from_u32(word_idx.word_id)].cate_id.to_native()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[cfg(feature = "train")]
-    const CHAR_DEF: &'static str = "\
+    const CHAR_DEF: &str = "\
 DEFAULT 0 1 0
 ALPHA   1 1 6
 NUMERIC 1 1 0
@@ -276,7 +368,7 @@ NUMERIC 1 1 0
 0x0041..0x005A ALPHA NUMERIC
 0x0061..0x007A ALPHA NUMERIC";
     #[cfg(feature = "train")]
-    const UNK_DEF: &'static str = "\
+    const UNK_DEF: &str = "\
 DEFAULT,0,0,0,補助記号,*
 ALPHA,0,0,0,名詞,*,変数
 ALPHA,0,0,0,動詞,*

@@ -1,5 +1,5 @@
 //! Provider of a routine for tokenization.
-use crate::dictionary::connector::Connector;
+use crate::dictionary::connector::ConnectorView;
 use crate::dictionary::mapper::{ConnIdCounter, ConnIdProbs};
 use crate::sentence::Sentence;
 use crate::token::{Token, TokenIter};
@@ -40,7 +40,7 @@ impl<'t> Worker<'t> {
         let input = input.as_ref();
         if !input.is_empty() {
             self.sent.set_sentence(input);
-            self.sent.compile(self.tokenizer.dictionary().char_prop());
+            self.sent.compile_archived(self.tokenizer.dictionary().char_prop());
         }
     }
 

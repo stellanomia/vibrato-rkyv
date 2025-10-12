@@ -1,63 +1,25 @@
 use std::io::{BufRead, BufReader, Read};
 
-use bincode::{
-    de::Decoder,
-    enc::Encoder,
-    error::{DecodeError, EncodeError},
-    Decode, Encode,
-};
+use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::dictionary::character::CharProperty;
 use crate::dictionary::connector::{ConnectorWrapper, MatrixConnector};
 use crate::dictionary::lexicon::Lexicon;
 use crate::dictionary::unknown::UnkHandler;
-use crate::dictionary::{Dictionary, SystemDictionaryBuilder};
+use crate::dictionary::{DictionaryInner, SystemDictionaryBuilder};
 use crate::errors::{Result, VibratoError};
 use crate::trainer::feature_extractor::FeatureExtractor;
 use crate::trainer::feature_rewriter::{FeatureRewriter, FeatureRewriterBuilder};
 
 /// Configuration for a trainer.
+#[derive(Archive, Serialize, Deserialize)]
 pub struct TrainerConfig {
     pub(crate) feature_extractor: FeatureExtractor,
     pub(crate) unigram_rewriter: FeatureRewriter,
     pub(crate) left_rewriter: FeatureRewriter,
     pub(crate) right_rewriter: FeatureRewriter,
-    pub(crate) dict: Dictionary,
+    pub(crate) dict: DictionaryInner,
     pub(crate) surfaces: Vec<String>,
-}
-
-impl<Context> Decode<Context> for TrainerConfig {
-    fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
-        let feature_extractor = Decode::decode(decoder)?;
-        let unigram_rewriter = Decode::decode(decoder)?;
-        let left_rewriter = Decode::decode(decoder)?;
-        let right_rewriter = Decode::decode(decoder)?;
-        let dict = Dictionary {
-            data: Decode::decode(decoder)?,
-        };
-        let surfaces = Decode::decode(decoder)?;
-        Ok(Self {
-            feature_extractor,
-            unigram_rewriter,
-            left_rewriter,
-            right_rewriter,
-            dict,
-            surfaces,
-        })
-    }
-}
-bincode::impl_borrow_decode!(TrainerConfig);
-
-impl Encode for TrainerConfig {
-    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
-        Encode::encode(&self.feature_extractor, encoder)?;
-        Encode::encode(&self.unigram_rewriter, encoder)?;
-        Encode::encode(&self.left_rewriter, encoder)?;
-        Encode::encode(&self.right_rewriter, encoder)?;
-        Encode::encode(&self.dict.data, encoder)?;
-        Encode::encode(&self.surfaces, encoder)?;
-        Ok(())
-    }
 }
 
 impl TrainerConfig {

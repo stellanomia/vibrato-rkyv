@@ -4,9 +4,9 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use csv_core::ReadFieldResult;
-use vibrato::dictionary::Dictionary;
-use vibrato::trainer::Corpus;
-use vibrato::Tokenizer;
+use vibrato_rkyv::dictionary::Dictionary;
+use vibrato_rkyv::trainer::Corpus;
+use vibrato_rkyv::Tokenizer;
 
 use clap::Parser;
 
@@ -20,10 +20,6 @@ struct Args {
     /// System dictionary (in zstd).
     #[clap(short = 'i', long)]
     sysdic_in: PathBuf,
-
-    /// User dictionary.
-    #[clap(short = 'u', long)]
-    userlex_csv_in: Option<PathBuf>,
 
     /// Maximum length of unknown words.
     #[clap(short = 'M', long)]
@@ -63,11 +59,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     eprintln!("Loading the dictionary...");
     let reader = zstd::Decoder::new(File::open(args.sysdic_in)?)?;
-    let mut dict = Dictionary::read(reader)?;
-
-    if let Some(userlex_csv_in) = args.userlex_csv_in {
-        dict = dict.reset_user_lexicon_from_reader(Some(File::open(userlex_csv_in)?))?;
-    }
+    let dict = Dictionary::read(reader)?;
 
     let tokenizer = Tokenizer::new(dict).max_grouping_len(args.max_grouping_len.unwrap_or(0));
     let mut worker = tokenizer.new_worker();

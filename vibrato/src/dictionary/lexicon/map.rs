@@ -2,15 +2,14 @@ pub mod posting;
 pub mod trie;
 
 use std::collections::BTreeMap;
-
-use bincode::{Decode, Encode};
+use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::dictionary::lexicon::map::posting::{Postings, PostingsBuilder};
 use crate::dictionary::lexicon::map::trie::Trie;
 use crate::errors::Result;
 use crate::utils::FromU32;
 
-#[derive(Decode, Encode)]
+#[derive(Archive, Serialize, Deserialize)]
 pub struct WordMap {
     trie: Trie,
     postings: Postings,
@@ -68,6 +67,20 @@ impl WordMapBuilder {
         Ok(WordMap {
             trie: Trie::from_records(&entries)?,
             postings: builder.build(),
+        })
+    }
+}
+
+impl ArchivedWordMap {
+    #[inline(always)]
+    pub fn common_prefix_iterator<'a>(
+        &'a self,
+        input: &'a [char],
+    ) -> impl Iterator<Item = (u32, usize)> + 'a {
+        self.trie.common_prefix_iterator(input).flat_map(move |e| {
+            self.postings
+                .ids(usize::from_u32(e.value))
+                .map(move |word_id| (word_id.to_native(), e.end_char))
         })
     }
 }

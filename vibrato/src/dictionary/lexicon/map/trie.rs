@@ -1,37 +1,10 @@
-use bincode::{
-    de::{BorrowDecode, BorrowDecoder, Decoder},
-    enc::Encoder,
-    error::{DecodeError, EncodeError},
-    Decode, Encode,
-};
+use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::errors::{Result, VibratoError};
 
+#[derive(Archive, Serialize, Deserialize)]
 pub struct Trie {
-    da: crawdad::Trie,
-}
-
-impl Encode for Trie {
-    fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
-        Encode::encode(&self.da.serialize_to_vec(), encoder)?;
-        Ok(())
-    }
-}
-
-impl<Context> Decode<Context> for Trie {
-    fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
-        let data: Vec<u8> = Decode::decode(decoder)?;
-        let (da, _) = crawdad::Trie::deserialize_from_slice(&data);
-        Ok(Self { da })
-    }
-}
-
-impl<'de, Context> BorrowDecode<'de, Context> for Trie {
-    fn borrow_decode<D: BorrowDecoder<'de>>(decoder: &mut D) -> Result<Self, DecodeError> {
-        let data: &[u8] = BorrowDecode::borrow_decode(decoder)?;
-        let (da, _) = crawdad::Trie::deserialize_from_slice(data);
-        Ok(Self { da })
-    }
+    da: crawdad_rkyv::Trie,
 }
 
 impl Trie {
@@ -40,7 +13,7 @@ impl Trie {
         K: AsRef<str>,
     {
         Ok(Self {
-            da: crawdad::Trie::from_records(records.iter().map(|(k, v)| (k, *v)))
+            da: crawdad_rkyv::Trie::from_records(records.iter().map(|(k, v)| (k, *v)))
                 .map_err(|e| VibratoError::invalid_argument("records", e.to_string()))?,
         })
     }
@@ -66,5 +39,17 @@ impl TrieMatch {
     #[inline(always)]
     pub const fn new(value: u32, end_char: usize) -> Self {
         Self { value, end_char }
+    }
+}
+
+impl ArchivedTrie {
+    #[inline(always)]
+    pub fn common_prefix_iterator<'a>(
+        &'a self,
+        input: &'a [char],
+    ) -> impl Iterator<Item = TrieMatch> + 'a {
+        self.da
+            .common_prefix_search(input.iter().cloned())
+            .map(move |(value, end_char)| TrieMatch::new(value, end_char))
     }
 }

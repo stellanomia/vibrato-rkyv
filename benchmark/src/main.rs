@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::BufRead;
 use std::path::PathBuf;
 
-use vibrato::{Dictionary, Tokenizer};
+use vibrato_rkyv::{Dictionary, Tokenizer};
 
 use timer::Timer;
 

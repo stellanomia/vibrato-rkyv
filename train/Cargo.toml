@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.0", features = ["derive"] }  # MIT or Apache-2.0
-vibrato = { path = "../vibrato" }  # MIT or Apache-2.0
-zstd = "0.11.2"  # MIT
+vibrato-rkyv = { path = "../vibrato" }  # MIT or Apache-2.0
+zstd = "0.13.3"  # MIT

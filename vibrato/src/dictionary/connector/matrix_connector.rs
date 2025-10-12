@@ -1,13 +1,13 @@
 use std::io::{prelude::*, BufReader, Read};
 
-use bincode::{Decode, Encode};
+use rkyv::{Archive, Deserialize, Serialize};
 
-use crate::dictionary::connector::{Connector, ConnectorCost};
+use crate::dictionary::connector::{Connector, ConnectorCost, ConnectorView};
 use crate::dictionary::mapper::ConnIdMapper;
 use crate::errors::{Result, VibratoError};
 
 /// Matrix of connection costs.
-#[derive(Decode, Encode)]
+#[derive(Archive, Serialize, Deserialize)]
 pub struct MatrixConnector {
     data: Vec<i16>,
     num_right: usize,
@@ -85,7 +85,7 @@ impl MatrixConnector {
     }
 }
 
-impl Connector for MatrixConnector {
+impl ConnectorView for MatrixConnector {
     #[inline(always)]
     fn num_left(&self) -> usize {
         self.num_left
@@ -95,7 +95,9 @@ impl Connector for MatrixConnector {
     fn num_right(&self) -> usize {
         self.num_right
     }
+}
 
+impl Connector for MatrixConnector {
     fn map_connection_ids(&mut self, mapper: &ConnIdMapper) {
         assert_eq!(mapper.num_left(), self.num_left);
         assert_eq!(mapper.num_right(), self.num_right);
@@ -121,6 +123,39 @@ impl ConnectorCost for MatrixConnector {
     fn cost(&self, right_id: u16, left_id: u16) -> i32 {
         let index = self.index(right_id, left_id);
         i32::from(self.data[index])
+    }
+}
+
+impl ArchivedMatrixConnector {
+    #[inline(always)]
+    fn index(&self, right_id: u16, left_id: u16) -> usize {
+        let num_right = self.num_right.to_native() as usize;
+        let num_left = self.num_left.to_native() as usize;
+        debug_assert!(usize::from(right_id) < num_right);
+        debug_assert!(usize::from(left_id) < num_left);
+        let index = usize::from(left_id) * num_right + usize::from(right_id);
+        debug_assert!(index < self.data.len());
+        index
+    }
+}
+
+impl ConnectorView for ArchivedMatrixConnector {
+    #[inline(always)]
+    fn num_left(&self) -> usize {
+        self.num_left.to_native() as usize
+    }
+
+    #[inline(always)]
+    fn num_right(&self) -> usize {
+        self.num_right.to_native() as usize
+    }
+}
+
+impl ConnectorCost for ArchivedMatrixConnector {
+    #[inline(always)]
+    fn cost(&self, right_id: u16, left_id: u16) -> i32 {
+        let index = self.index(right_id, left_id);
+        i32::from(self.data[index].to_native())
     }
 }
 

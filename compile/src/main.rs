@@ -3,7 +3,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use vibrato::dictionary::SystemDictionaryBuilder;
+use vibrato_rkyv::dictionary::SystemDictionaryBuilder;
 
 use clap::{error::ErrorKind, CommandFactory, Parser};
 

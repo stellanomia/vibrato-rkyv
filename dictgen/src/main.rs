@@ -2,7 +2,7 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use clap::Parser;
-use vibrato::trainer::Model;
+use vibrato_rkyv::trainer::Model;
 
 #[derive(Parser, Debug)]
 #[clap(name = "dictgen", about = "Dictionary generator")]
