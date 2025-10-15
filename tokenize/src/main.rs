@@ -1,5 +1,4 @@
 use std::error::Error;
-use std::fs::File;
 use std::io::{BufRead, BufWriter, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -52,8 +51,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
     eprintln!("Loading the dictionary...");
-    let reader = zstd::Decoder::new(File::open(args.sysdic)?)?;
-    let dict = Dictionary::read(reader)?;
+    let dict = Dictionary::from_zstd(args.sysdic)?;
 
     let tokenizer = Tokenizer::new(dict)
         .ignore_space(args.ignore_space)?

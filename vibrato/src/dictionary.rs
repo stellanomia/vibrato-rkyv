@@ -7,9 +7,10 @@ pub(crate) mod mapper;
 pub(crate) mod unknown;
 pub(crate) mod word_idx;
 
-use std::fs::File;
-use std::io::{Read, Write};
+use std::fs::{self, File};
+use std::io::{self, Read, Write};
 use std::ops::Deref;
+use std::path::Path;
 
 use memmap2::Mmap;
 use rkyv::Archived;
@@ -20,6 +21,7 @@ use rkyv::{
     ser::writer::IoWriter, ser::Serializer, util::with_arena, Archive, Deserialize,
     Serialize,
 };
+use sha2::{Digest, Sha256};
 
 use crate::dictionary::character::{ArchivedCharProperty, CharProperty};
 use crate::dictionary::connector::{ArchivedConnectorWrapper, Connector, ConnectorWrapper};
@@ -33,8 +35,11 @@ pub use crate::dictionary::word_idx::WordIdx;
 
 pub(crate) use crate::dictionary::lexicon::WordParam;
 
-/// Magic bytes identifying Vibrato Tokenizer v0.6 model file.
-pub const MODEL_MAGIC: &[u8] = b"VibratoTokenizer 0.6\n";
+/// Magic bytes identifying Vibrato Tokenizer with rkyv v0.6 model file.
+pub const MODEL_MAGIC: &[u8] = b"VibratoTokenizerRkyv 0.6\n";
+
+/// Prefix of magic bytes for legacy bincode-based models.
+pub const LEGACY_MODEL_MAGIC_PREFIX: &[u8] = b"VibratoTokenizer 0.";
 
 /// Type of a lexicon that contains the word.
 #[derive(
@@ -92,7 +97,6 @@ enum DictBuffer {
 
 /// A read-only dictionary for tokenization, loaded via zero-copy deserialization.
 pub struct Dictionary {
-
     _buffer: DictBuffer,
     // The 'static lifetime is safe because we hold the buffer in `_buffer`.
     data: &'static ArchivedDictionaryInner,
@@ -238,7 +242,12 @@ impl Dictionary {
         })?;
         let mmap = unsafe { Mmap::map(&file)? };
 
-        if !mmap.starts_with(MODEL_MAGIC) {
+        if mmap.starts_with(LEGACY_MODEL_MAGIC_PREFIX) {
+            return Err(VibratoError::invalid_argument(
+                "path",
+                "This appears to be a legacy bincode-based dictionary file. Please use a dictionary compiled for the rkyv version of vibrato.",
+            ));
+        } else if !mmap.starts_with(MODEL_MAGIC) {
             return Err(VibratoError::invalid_argument(
                 "path",
                 "The magic number of the input model mismatches.",
@@ -258,6 +267,20 @@ impl Dictionary {
         }
 
         let data_bytes = &mmap[data_start..];
+
+        #[cfg(not(debug_assertions))]
+        {
+            use rkyv::access_unchecked;
+            let archived = unsafe { access_unchecked::<ArchivedDictionaryInner>(data_bytes) };
+            let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
+            return Ok(
+                Self {
+                    _buffer: DictBuffer::Mmap(mmap),
+                    data,
+                }
+            );
+
+        }
 
         match access::<ArchivedDictionaryInner, Error>(data_bytes) {
             Ok(archived) => {
@@ -305,10 +328,18 @@ impl Dictionary {
         const RKYV_ALIGNMENT: usize = 16;
         let mut magic = [0; MODEL_MAGIC.len()];
         rdr.read_exact(&mut magic)?;
-        if magic != MODEL_MAGIC {
-            return Err(VibratoError::invalid_argument("rdr", "Magic number mismatch."));
-        }
 
+        if magic.starts_with(LEGACY_MODEL_MAGIC_PREFIX) {
+            return Err(VibratoError::invalid_argument(
+                "rdr",
+                "This appears to be a legacy bincode-based dictionary file. Please use a dictionary compiled for the rkyv version of vibrato.",
+            ));
+        }else if !magic.starts_with(MODEL_MAGIC) {
+            return Err(VibratoError::invalid_argument(
+                "rdr",
+                "The magic number of the input model mismatches.",
+            ));
+        }
 
         let magic_len = MODEL_MAGIC.len();
         let padding_len = (RKYV_ALIGNMENT - (magic_len % RKYV_ALIGNMENT)) % RKYV_ALIGNMENT;
@@ -338,6 +369,73 @@ impl Dictionary {
             _buffer: DictBuffer::Aligned(aligned_bytes),
             data,
         })
+    }
+
+    /// Loads a dictionary from a Zstandard-compressed file, with automatic caching.
+    ///
+    /// On the first run, this function decompresses the dictionary to a file in a
+    /// `decompressed` subdirectory next to the compressed file. Subsequent runs
+    /// will load the decompressed cache directly using the highly efficient `from_path`,
+    /// achieving near-instant startup times.
+    ///
+    /// The cache is automatically invalidated and regenerated if the original compressed
+    /// file is modified.
+    pub fn from_zstd<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
+        let zstd_path = path.as_ref().canonicalize()?;
+        let mut hasher = Sha256::new();
+
+        let file = File::open(&zstd_path)?;
+        let meta = file.metadata()?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            hasher.update(meta.dev().to_le_bytes());
+            hasher.update(meta.ino().to_le_bytes());
+            hasher.update(meta.size().to_le_bytes());
+            hasher.update(meta.mtime().to_le_bytes());
+            hasher.update(meta.mtime_nsec().to_le_bytes());
+        }
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            hasher.update(meta.file_size().to_le_bytes());
+            hasher.update(meta.last_write_time().to_le_bytes());
+        }
+
+        let dict_hash = hex::encode(hasher.finalize());
+        drop(file);
+
+        let decompressed_dir = zstd_path.parent().unwrap().join("decompressed");
+        let zstd_file_name = zstd_path.file_name().unwrap().to_string_lossy();
+        let zstd_hash_path = decompressed_dir.join(format!("{}.sha256", zstd_file_name));
+        let decompressed_path = decompressed_dir.join(
+            Path::new(&zstd_file_name.to_string()).with_extension("")
+        );
+
+        if zstd_hash_path.exists()
+            && let Ok(compressed_dict_hash) = fs::read_to_string(&zstd_hash_path)
+            && compressed_dict_hash.trim() == dict_hash {
+                return Self::from_path(decompressed_path);
+            }
+
+        fs::create_dir_all(&decompressed_dir)?;
+        let temp_path = decompressed_dir.join(format!("{}.tmp.{}", zstd_file_name, std::process::id()));
+
+        {
+            let compressed_file = File::open(zstd_path)?;
+            let mut temp_file = File::create(&temp_path)?;
+            let mut decoder = zstd::Decoder::new(compressed_file)?;
+
+            io::copy(&mut decoder, &mut temp_file)?;
+            temp_file.sync_all()?;
+        }
+
+        fs::rename(&temp_path, &decompressed_path)?;
+
+        fs::write(&zstd_hash_path, dict_hash)?;
+
+        Self::from_path(decompressed_path)
     }
 }
 

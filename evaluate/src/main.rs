@@ -58,8 +58,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
     eprintln!("Loading the dictionary...");
-    let reader = zstd::Decoder::new(File::open(args.sysdic_in)?)?;
-    let dict = Dictionary::read(reader)?;
+    let dict = Dictionary::from_zstd(args.sysdic_in)?;
 
     let tokenizer = Tokenizer::new(dict).max_grouping_len(args.max_grouping_len.unwrap_or(0));
     let mut worker = tokenizer.new_worker();

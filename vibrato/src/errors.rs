@@ -37,6 +37,10 @@ pub enum VibratoError {
     #[cfg(feature = "train")]
     Crf(rucrf_rkyv::errors::RucrfError),
 
+    /// The error variant for [`std::io::Error`](std::io::Error).
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+
     #[error(transparent)]
     /// The error variant for [`rkyv::rancor::Error`](rkyv::rancor::Error).
     RkyvError(#[from] rkyv::rancor::Error),
@@ -86,6 +90,7 @@ impl fmt::Display for VibratoError {
             Self::ParseInt(e) => e.fmt(f),
             Self::StdIo(e) => e.fmt(f),
             Self::Utf8(e) => e.fmt(f),
+            Self::IoError(e) => e.fmt(f),
             Self::RkyvError(e) => e.fmt(f),
 
             #[cfg(feature = "train")]
@@ -164,12 +169,6 @@ impl From<std::num::ParseFloatError> for VibratoError {
 impl From<std::num::ParseIntError> for VibratoError {
     fn from(error: std::num::ParseIntError) -> Self {
         Self::ParseInt(error)
-    }
-}
-
-impl From<std::io::Error> for VibratoError {
-    fn from(error: std::io::Error) -> Self {
-        Self::StdIo(error)
     }
 }
 

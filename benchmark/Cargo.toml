@@ -2,8 +2,8 @@
 name = "benchmark"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [dependencies]
 vibrato-rkyv = { path = "../vibrato" }
 clap = { version = "4.0", features = ["derive"] }  # MIT or Apache-2.0
-zstd = "0.13.3"  # MIT

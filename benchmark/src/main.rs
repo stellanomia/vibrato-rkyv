@@ -1,7 +1,6 @@
 mod timer;
 
 use std::error::Error;
-use std::fs::File;
 use std::io::BufRead;
 use std::path::PathBuf;
 
@@ -36,8 +35,7 @@ struct Args {
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
-    let reader = zstd::Decoder::new(File::open(args.sysdic)?)?;
-    let dict = Dictionary::read(reader)?;
+    let dict = Dictionary::from_zstd(args.sysdic)?;
 
     let tokenizer = Tokenizer::new(dict)
         .ignore_space(args.ignore_space)?

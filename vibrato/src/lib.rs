@@ -1,4 +1,4 @@
-//! # Vibrato
+//! # Vibrato-rkyv
 //!
 //! Vibrato is a fast implementation of tokenization (or morphological analysis)
 //! based on the viterbi algorithm.
@@ -7,7 +7,6 @@
 //!
 //! ```
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!
 //! use vibrato_rkyv::{Dictionary, SystemDictionaryBuilder, Tokenizer};
 //!
 //! let lexicon_csv = "京都,4,4,5,京都,名詞,固有名詞,地名,一般,*,*,キョウト,京都,*,A,*,*,*,1/5
@@ -24,13 +23,10 @@
 //!     unk_def.as_bytes(),
 //! )?;
 //!
-//!
-//!
 //! let mut buffer = Vec::new();
 //! dict_inner.write(&mut buffer)?;
 //!
 //! let dict = Dictionary::read(buffer.as_slice())?;
-//!
 //!
 //! let tokenizer = Tokenizer::new(dict);
 //! let mut worker = tokenizer.new_worker();

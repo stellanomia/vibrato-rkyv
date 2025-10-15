@@ -2,7 +2,7 @@
 name = "evaluate"
 version = "0.1.0"
 edition = "2021"
-
+publish = false
 default-run = "evaluate"
 
 [dependencies]
@@ -10,7 +10,6 @@ clap = { version = "4.0", features = ["derive"] }  # MIT or Apache-2.0
 csv-core = "0.1.10"  # Unlicense or MIT
 rand = "0.8"  # MIT or Apache-2.0
 vibrato-rkyv = { path = "../vibrato" }  # MIT or Apache-2.0
-zstd = "0.13.3"  # MIT
 
 [[bin]]
 name = "split"
