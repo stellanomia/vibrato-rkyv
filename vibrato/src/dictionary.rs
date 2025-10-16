@@ -282,6 +282,7 @@ impl Dictionary {
 
         }
 
+        #[allow(unreachable_code)]
         match access::<ArchivedDictionaryInner, Error>(data_bytes) {
             Ok(archived) => {
                 let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };

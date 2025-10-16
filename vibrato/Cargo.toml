@@ -30,7 +30,15 @@ sha2 = "0.10.9"
 thiserror = "2.0.17"
 zstd = "0.13.3"
 
+[dev-dependencies]
+criterion = { version = "0.7.0", features = ["html_reports"] }
+vibrato = "0.5.2"
+
 [features]
 default = ["train"]
 
 train = ["rucrf-rkyv"]
+
+[[bench]]
+name = "init_benchmark"
+harness = false
