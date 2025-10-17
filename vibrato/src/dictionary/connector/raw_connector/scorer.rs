@@ -1,10 +1,14 @@
 #![allow(dead_code)]
 use std::collections::BTreeMap;
+use rkyv::rancor::Error;
 
 #[cfg(target_feature = "avx2")]
 use std::arch::x86_64 as x86_64;
+#[cfg(target_feature = "avx2")]
+use avx2_support::M256i;
+#[cfg(target_feature = "avx2")]
+use rkyv::with::Skip;
 
-use rkyv::rancor::Error;
 use rkyv::{Archive, Deserialize, Serialize, from_bytes_unchecked, to_bytes};
 
 use crate::num::U31;
@@ -31,7 +35,9 @@ impl U31x8 {
 
     #[cfg(target_feature = "avx2")]
     pub unsafe fn as_m256i(&self) -> x86_64::__m256i {
-        x86_64::_mm256_loadu_si256(self.0.as_ptr() as *const x86_64::__m256i)
+        unsafe {
+            x86_64::_mm256_loadu_si256(self.0.as_ptr() as *const x86_64::__m256i)
+        }
     }
 }
 
@@ -103,26 +109,43 @@ impl ScorerBuilder {
             costs,
 
             #[cfg(target_feature = "avx2")]
-            bases_len,
+            bases_len: M256i(bases_len),
             #[cfg(target_feature = "avx2")]
-            checks_len,
+            checks_len: M256i(checks_len),
         }
     }
 }
 
-#[derive(Archive, Serialize, Deserialize, Debug, PartialEq)]
-#[rkyv(compare(PartialEq))]
+#[cfg(target_feature = "avx2")]
+mod avx2_support {
+    use std::arch::x86_64 as x86_64;
+
+    #[derive(Debug, Clone, Copy)]
+    #[repr(transparent)]
+    pub struct M256i(pub x86_64::__m256i);
+
+    impl Default for M256i {
+        fn default() -> Self {
+            unsafe {
+                Self(x86_64::_mm256_setzero_si256())
+            }
+        }
+    }
+}
+
+#[derive(Debug, Archive, Serialize, Deserialize)]
 pub struct Scorer {
     bases: Vec<u32>,
     checks: Vec<u32>,
     costs: Vec<i32>,
 
     #[cfg(target_feature = "avx2")]
-    #[rkyv(skip)]
-    bases_len: x86_64::__m256i,
+    #[rkyv(with = Skip)]
+    bases_len: M256i,
+
     #[cfg(target_feature = "avx2")]
-    #[rkyv(skip)]
-    checks_len: x86_64::__m256i,
+    #[rkyv(with = Skip)]
+    checks_len: M256i,
 }
 
 #[allow(clippy::derivable_impls)]
@@ -134,9 +157,9 @@ impl Default for Scorer {
             costs: vec![],
 
             #[cfg(target_feature = "avx2")]
-            bases_len: unsafe { x86_64::_mm256_set1_epi32(0) },
+            bases_len: M256i(unsafe { x86_64::_mm256_set1_epi32(0) }),
             #[cfg(target_feature = "avx2")]
-            checks_len: unsafe { x86_64::_mm256_set1_epi32(0) },
+            checks_len: M256i(unsafe { x86_64::_mm256_set1_epi32(0) }),
         }
     }
 }
@@ -173,42 +196,44 @@ impl Scorer {
     #[cfg(target_feature = "avx2")]
     #[inline(always)]
     pub unsafe fn retrieve_cost(&self, key1: x86_64::__m256i, key2: x86_64::__m256i) -> x86_64::__m256i {
-        // key1 < bases.len() ?
-        let mask_valid_key1 = x86_64::_mm256_cmpgt_epi32(self.bases_len, key1);
-        // base = bases[key1]
-        let base = x86_64::_mm256_mask_i32gather_epi32(
-            x86_64::_mm256_set1_epi32(0),
-            self.bases.as_ptr() as *const i32,
-            key1,
-            mask_valid_key1,
-            4,
-        );
-        // pos = base ^ key2
-        let pos = x86_64::_mm256_xor_si256(base, key2);
-        // pos < checks.len() && key1 < bases.len() ?
-        let mask_valid_pos = x86_64::_mm256_and_si256(
-            x86_64::_mm256_cmpgt_epi32(self.checks_len, pos),
-            mask_valid_key1,
-        );
-        // check = checks[pos]
-        let check = x86_64::_mm256_mask_i32gather_epi32(
-            x86_64::_mm256_set1_epi32(UNUSED_CHECK as i32),
-            self.checks.as_ptr() as *const i32,
-            pos,
-            mask_valid_pos,
-            4,
-        );
-        // check == key1 && pos < checks.len() && key1 < bases.len() ?
-        let mask_checked =
-            x86_64::_mm256_and_si256(x86_64::_mm256_cmpeq_epi32(check, key1), mask_valid_pos);
+        unsafe {
+            // key1 < bases.len() ?
+            let mask_valid_key1 = x86_64::_mm256_cmpgt_epi32(self.bases_len.0, key1);
+            // base = bases[key1]
+            let base = x86_64::_mm256_mask_i32gather_epi32(
+                x86_64::_mm256_set1_epi32(0),
+                self.bases.as_ptr() as *const i32,
+                key1,
+                mask_valid_key1,
+                4,
+            );
+            // pos = base ^ key2
+            let pos = x86_64::_mm256_xor_si256(base, key2);
+            // pos < checks.len() && key1 < bases.len() ?
+            let mask_valid_pos = x86_64::_mm256_and_si256(
+                x86_64::_mm256_cmpgt_epi32(self.checks_len.0, pos),
+                mask_valid_key1,
+            );
+            // check = checks[pos]
+            let check = x86_64::_mm256_mask_i32gather_epi32(
+                x86_64::_mm256_set1_epi32(UNUSED_CHECK as i32),
+                self.checks.as_ptr() as *const i32,
+                pos,
+                mask_valid_pos,
+                4,
+            );
+            // check == key1 && pos < checks.len() && key1 < bases.len() ?
+            let mask_checked =
+                x86_64::_mm256_and_si256(x86_64::_mm256_cmpeq_epi32(check, key1), mask_valid_pos);
 
-        x86_64::_mm256_mask_i32gather_epi32(
-            x86_64::_mm256_set1_epi32(0),
-            self.costs.as_ptr(),
-            pos,
-            mask_checked,
-            4,
-        )
+            x86_64::_mm256_mask_i32gather_epi32(
+                x86_64::_mm256_set1_epi32(0),
+                self.costs.as_ptr(),
+                pos,
+                mask_checked,
+                4,
+            )
+        }
     }
 
     #[cfg(target_feature = "avx2")]
@@ -245,9 +270,11 @@ impl Scorer {
 impl ArchivedScorer {
     #[cfg(target_feature = "avx2")]
     unsafe fn post_deserialize(&self) -> (x86_64::__m256i, x86_64::__m256i) {
-        let bases_len = x86_64::_mm256_set1_epi32(i32::try_from(self.bases.len()).unwrap());
-        let checks_len = x86_64::_mm256_set1_epi32(i32::try_from(self.checks.len()).unwrap());
-        (bases_len, checks_len)
+        unsafe {
+            let bases_len = x86_64::_mm256_set1_epi32(i32::try_from(self.bases.len()).unwrap());
+            let checks_len = x86_64::_mm256_set1_epi32(i32::try_from(self.checks.len()).unwrap());
+            (bases_len, checks_len)
+        }
     }
 
     #[cfg(not(target_feature = "avx2"))]
@@ -290,48 +317,50 @@ impl ArchivedScorer {
         bases_len: x86_64::__m256i,
         checks_len: x86_64::__m256i,
     ) -> x86_64::__m256i {
-        // key1 < bases.len() ?
-        let mask_valid_key1 = x86_64::_mm256_cmpgt_epi32(bases_len, key1);
+        unsafe {
+            // key1 < bases.len() ?
+            let mask_valid_key1 = x86_64::_mm256_cmpgt_epi32(bases_len, key1);
 
-        // base = bases[key1]
-        let base = x86_64::_mm256_mask_i32gather_epi32(
-            x86_64::_mm256_set1_epi32(0),
-            self.bases.as_ptr() as *const i32,
-            key1,
-            mask_valid_key1,
-            4, // 4 bytes (i32) scale
-        );
+            // base = bases[key1]
+            let base = x86_64::_mm256_mask_i32gather_epi32(
+                x86_64::_mm256_set1_epi32(0),
+                self.bases.as_ptr() as *const i32,
+                key1,
+                mask_valid_key1,
+                4, // 4 bytes (i32) scale
+            );
 
-        // pos = base ^ key2
-        let pos = x86_64::_mm256_xor_si256(base, key2);
+            // pos = base ^ key2
+            let pos = x86_64::_mm256_xor_si256(base, key2);
 
-        // pos < checks.len() && key1 < bases.len() ?
-        let mask_valid_pos = x86_64::_mm256_and_si256(
-            x86_64::_mm256_cmpgt_epi32(checks_len, pos),
-            mask_valid_key1,
-        );
+            // pos < checks.len() && key1 < bases.len() ?
+            let mask_valid_pos = x86_64::_mm256_and_si256(
+                x86_64::_mm256_cmpgt_epi32(checks_len, pos),
+                mask_valid_key1,
+            );
 
-        // check = checks[pos]
-        let check = x86_64::_mm256_mask_i32gather_epi32(
-            x86_64::_mm256_set1_epi32(UNUSED_CHECK as i32),
-            self.checks.as_ptr() as *const i32,
-            pos,
-            mask_valid_pos,
-            4,
-        );
+            // check = checks[pos]
+            let check = x86_64::_mm256_mask_i32gather_epi32(
+                x86_64::_mm256_set1_epi32(UNUSED_CHECK as i32),
+                self.checks.as_ptr() as *const i32,
+                pos,
+                mask_valid_pos,
+                4,
+            );
 
-        // check == key1 && pos < checks.len() && key1 < bases.len() ?
-        let mask_checked =
-            x86_64::_mm256_and_si256(x86_64::_mm256_cmpeq_epi32(check, key1), mask_valid_pos);
+            // check == key1 && pos < checks.len() && key1 < bases.len() ?
+            let mask_checked =
+                x86_64::_mm256_and_si256(x86_64::_mm256_cmpeq_epi32(check, key1), mask_valid_pos);
 
-        // return costs[pos] where mask is set
-        x86_64::_mm256_mask_i32gather_epi32(
-            x86_64::_mm256_set1_epi32(0),
-            self.costs.as_ptr() as *const i32,
-            pos,
-            mask_checked,
-            4,
-        )
+            // return costs[pos] where mask is set
+            x86_64::_mm256_mask_i32gather_epi32(
+                x86_64::_mm256_set1_epi32(0),
+                self.costs.as_ptr() as *const i32,
+                pos,
+                mask_checked,
+                4,
+            )
+        }
     }
 
     #[cfg(target_feature = "avx2")]
@@ -364,7 +393,9 @@ impl ArchivedScorer {
 impl ArchivedU31x8 {
     #[cfg(target_feature = "avx2")]
     pub unsafe fn as_m256i(&self) -> x86_64::__m256i {
-        x86_64::_mm256_loadu_si256(self.0.as_ptr() as *const x86_64::__m256i)
+        unsafe {
+            x86_64::_mm256_loadu_si256(self.0.as_ptr() as *const x86_64::__m256i)
+        }
     }
 }
 
@@ -405,12 +436,13 @@ mod tests {
 
         let bytes = scorer.serialize_to_bytes();
 
-        let restored_scorer = rkyv::from_bytes::<Scorer, Error>(&bytes).expect("deserialization failed");
+        #[allow(unused_mut)]
+        let mut restored_scorer = rkyv::from_bytes::<Scorer, Error>(&bytes).expect("deserialization failed");
 
         #[cfg(target_feature = "avx2")]
         {
-            restored_scorer.bases_len = unsafe { x86_64::_mm256_set1_epi32(i32::try_from(restored_scorer.bases.len()).unwrap()) };
-            restored_scorer.checks_len = unsafe { x86_64::_mm256_set1_epi32(i32::try_from(restored_scorer.checks.len()).unwrap()) };
+            restored_scorer.bases_len = M256i(unsafe { x86_64::_mm256_set1_epi32(i32::try_from(restored_scorer.bases.len()).unwrap()) });
+            restored_scorer.checks_len = M256i(unsafe { x86_64::_mm256_set1_epi32(i32::try_from(restored_scorer.checks.len()).unwrap()) });
         }
 
         assert_eq!(restored_scorer.bases, scorer.bases);

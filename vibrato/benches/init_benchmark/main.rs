@@ -44,7 +44,7 @@ fn bench_dictionary_load(c: &mut Criterion) {
         })
     });
 
-    group.sample_size(1000);
+    group.sample_size(500);
 
     // vibrato-rkyv (from_path)
     group.bench_function("vibrato-rkyv/from_path/warm", |b| {
@@ -74,8 +74,6 @@ fn bench_dictionary_load(c: &mut Criterion) {
             }
         )
     });
-
-    group.sample_size(10);
 
     // vibrato-rkyv (from_path)
     group.bench_function("vibrato-rkyv/from_path/cold", |b| {
