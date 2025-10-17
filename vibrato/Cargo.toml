@@ -19,11 +19,11 @@ categories = ["text-processing"]
 
 [dependencies]
 crawdad-rkyv = "0.4.0-rkyv.1"
-csv-core = "0.1.10" # Unlicense or MIT
+csv-core = "0.1.13" # Unlicense or MIT
 hashbrown = "0.15.5"
 hex = "0.4.3"
 memmap2 = "0.9.8"
-regex = "1" # MIT or Apache-2.0
+regex = "1.12.2" # MIT or Apache-2.0
 rkyv = { version = "0.8.12", features = ["hashbrown-0_15"] }
 rucrf-rkyv = { version = "0.3.3-rkyv.1", optional = true }
 sha2 = "0.10.9"

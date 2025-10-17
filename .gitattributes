@@ -1,0 +1,7 @@
+* text=auto eol=lf
+
+*.rs text
+*.toml text
+*.csv text
+*.def text
+*.md text
