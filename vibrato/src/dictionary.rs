@@ -1,14 +1,16 @@
 //! Dictionary for tokenization.
 pub mod builder;
 pub(crate) mod character;
+pub(crate) mod config;
 pub(crate) mod connector;
+pub(crate) mod fetch;
 pub(crate) mod lexicon;
 pub(crate) mod mapper;
 pub(crate) mod unknown;
 pub(crate) mod word_idx;
 
 use std::fs::{self, File};
-use std::io::{self, Read, Write};
+use std::io::{self, ErrorKind, Read, Write};
 use std::ops::Deref;
 use std::path::Path;
 
@@ -32,6 +34,7 @@ use crate::errors::{Result, VibratoError};
 
 pub use crate::dictionary::builder::SystemDictionaryBuilder;
 pub use crate::dictionary::word_idx::WordIdx;
+pub use crate::dictionary::config::PresetDictionaryKind;
 
 pub(crate) use crate::dictionary::lexicon::WordParam;
 
@@ -382,10 +385,10 @@ impl Dictionary {
     /// The cache is automatically invalidated and regenerated if the original compressed
     /// file is modified.
     pub fn from_zstd<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
-        let zstd_path = path.as_ref().canonicalize()?;
+        let zstd_path = path.as_ref();
         let mut hasher = Sha256::new();
 
-        let file = File::open(&zstd_path)?;
+        let file = File::open(zstd_path)?;
         let meta = file.metadata()?;
         #[cfg(unix)]
         {
@@ -407,11 +410,12 @@ impl Dictionary {
         let dict_hash = hex::encode(hasher.finalize());
         drop(file);
 
-        let decompressed_dir = zstd_path.parent().unwrap().join("decompressed");
-        let zstd_file_name = zstd_path.file_name().unwrap().to_string_lossy();
+        let mut decompressed_dir = zstd_path.parent().unwrap().join("decompressed");
+        let zstd_file_name_os_str = zstd_path.file_name().unwrap();
+        let zstd_file_name = zstd_file_name_os_str.to_string_lossy();
         let zstd_hash_path = decompressed_dir.join(format!("{}.sha256", zstd_file_name));
         let decompressed_path = decompressed_dir.join(
-            Path::new(&zstd_file_name.to_string()).with_extension("")
+            zstd_path.file_stem().unwrap_or(zstd_file_name_os_str)
         );
 
         if zstd_hash_path.exists()
@@ -420,7 +424,25 @@ impl Dictionary {
                 return Self::from_path(decompressed_path);
             }
 
-        fs::create_dir_all(&decompressed_dir)?;
+        if let Err(e) = fs::create_dir_all(&decompressed_dir) {
+            if e.kind() == ErrorKind::PermissionDenied && let Some(mut path) = dirs::cache_dir() {
+                path.push("vibrato-rkyv/decompressed");
+                decompressed_dir = path;
+                let zstd_hash_path = decompressed_dir.join(format!("{}.sha256", zstd_file_name));
+                let decompressed_path = decompressed_dir.join(
+                    Path::new(&zstd_file_name.to_string()).with_extension("")
+                );
+
+                if zstd_hash_path.exists()
+                    && let Ok(compressed_dict_hash) = fs::read_to_string(&zstd_hash_path)
+                    && compressed_dict_hash.trim() == dict_hash {
+                        return Self::from_path(decompressed_path);
+                    }
+            } else {
+                Err(e)?;
+            }
+        }
+
         let temp_path = decompressed_dir.join(format!("{}.tmp.{}", zstd_file_name, std::process::id()));
 
         {
@@ -437,6 +459,94 @@ impl Dictionary {
         fs::write(&zstd_hash_path, dict_hash)?;
 
         Self::from_path(decompressed_path)
+    }
+
+    #[cfg(feature = "download")]
+    /// Creates a `Dictionary` instance from a preset, downloading it if not present.
+    ///
+    /// This is the most convenient way to get started with a pre-compiled dictionary.
+    /// The function first checks if the specified preset dictionary already exists in the
+    /// given directory. If it exists and its integrity is verified, it is loaded directly.
+    /// Otherwise, the dictionary is downloaded from the official repository to the directory,
+    /// and then loaded.
+    ///
+    /// The downloaded dictionary is compressed with Zstandard. This function transparently
+    /// handles decompression and caching for fast subsequent loads via memory-mapping.
+    ///
+    /// This function is only available when the `download` feature is enabled.
+    ///
+    /// # Arguments
+    ///
+    /// * `kind` - The preset dictionary to use (e.g., `PresetDictionaryKind::Ipadic`).
+    /// * `dir` - The directory where the dictionary will be stored and cached.
+    ///   It is recommended to use a persistent location.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the download fails (e.g., network issues), if the downloaded
+    /// file is corrupted (hash mismatch), or if there are file system permission
+    /// errors when creating the cache directory.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::path::Path;
+    /// # use vibrato_rkyv::{Dictionary, Tokenizer, dictionary::PresetDictionaryKind};
+    /// # let dir = Path::new("./cache_dir");
+    /// // Download and load the IPADIC preset dictionary.
+    /// // The first call will download the file, subsequent calls will use the cache.
+    /// let dictionary = Dictionary::from_preset_with_download(
+    ///     PresetDictionaryKind::Ipadic,
+    ///     dir,
+    /// ).unwrap();
+    ///
+    /// let mut tokenizer = Tokenizer::new(dictionary);
+    /// ```
+    pub fn from_preset_with_download<P: AsRef<Path>>(kind: PresetDictionaryKind, dir: P) -> Result<Self> {
+        let dict_path = fetch::download_dictionary(kind, dir)?;
+
+        Self::from_zstd(dict_path)
+    }
+
+    #[cfg(feature = "download")]
+    /// Downloads a preset dictionary file and returns the path to it.
+    ///
+    /// Once downloaded, the dictionary can be loaded using [`Dictionary::from_zstd`].
+    ///
+    /// This function is only available when the `download` feature is enabled.
+    ///
+    /// # Arguments
+    ///
+    /// * `kind` - The preset dictionary to download (e.g., `PresetDictionaryKind::Ipadic`).
+    /// * `dir` - The directory where the dictionary file will be stored.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing the `PathBuf` to the downloaded
+    /// Zstandard-compressed dictionary file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the download fails, the file is corrupted, or if there are
+    /// file system permission errors.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::path::Path;
+    /// # use vibrato_rkyv::{Dictionary, dictionary::PresetDictionaryKind};
+    /// # let dir = Path::new("./cache_dir");
+    /// let dict_path = Dictionary::download_dictionary(
+    ///     PresetDictionaryKind::Unidic,
+    ///     dir,
+    /// ).unwrap();
+    ///
+    /// println!("Dictionary downloaded to: {:?}", dict_path);
+    ///
+    /// let dictionary = Dictionary::from_zstd(dict_path).unwrap();
+    /// ```
+    pub fn download_dictionary<P: AsRef<Path>>(kind: PresetDictionaryKind, dir: P) -> Result<std::path::PathBuf> {
+        Ok(fetch::download_dictionary(kind, dir)?)
     }
 }
 

@@ -1,9 +1,8 @@
 [package]
 name = "vibrato-rkyv"
 # NOTE(kampersanda): Developers should check compatibility with MODEL_MAGIC in dictionary.rs.
-version = "0.6.3"
+version = "0.6.4"
 edition = "2024"
-rust-version = "1.90"
 authors = [
     "stellanomia <fulmlumo@gmail.com>",
     "Shunsuke Kanda <shnsk.knd@gmail.com>",
@@ -20,13 +19,16 @@ categories = ["text-processing"]
 [dependencies]
 crawdad-rkyv = "0.4.0-rkyv.1"
 csv-core = "0.1.13" # Unlicense or MIT
+dirs = "6.0.0"
 hashbrown = "0.15.5"
 hex = "0.4.3"
 memmap2 = "0.9.8"
 regex = "1.12.2" # MIT or Apache-2.0
+reqwest = { version = "0.12.24", features = ["blocking"], optional = true }
 rkyv = { version = "0.8.12", features = ["hashbrown-0_15"] }
 rucrf-rkyv = { version = "0.3.3-rkyv.1", optional = true }
 sha2 = "0.10.9"
+tar = { version = "0.4.44", optional = true }
 thiserror = "2.0.17"
 zstd = "0.13.3"
 
@@ -35,10 +37,15 @@ criterion = { version = "0.7.0", features = ["html_reports"] }
 vibrato = "0.5.2"
 
 [features]
-default = ["train"]
+default = ["train", "download"]
 
 train = ["rucrf-rkyv"]
+download = ["dep:reqwest", "dep:tar"]
 
 [[bench]]
-name = "init_benchmark"
+name = "vibrato_init_bench"
+harness = false
+
+[[bench]]
+name = "vibrato_rkyv_init_bench"
 harness = false

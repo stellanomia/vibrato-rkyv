@@ -37,6 +37,10 @@ pub enum VibratoError {
     #[cfg(feature = "train")]
     Crf(rucrf_rkyv::errors::RucrfError),
 
+    /// The error variant for [`DownloadError`](crate::dictionary::fetch::DownloadError).
+    #[cfg(feature = "download")]
+    Download(#[from] DownloadError),
+
     /// The error variant for [`std::io::Error`](std::io::Error).
     #[error(transparent)]
     IoError(#[from] std::io::Error),
@@ -95,6 +99,9 @@ impl fmt::Display for VibratoError {
 
             #[cfg(feature = "train")]
             Self::Crf(e) => e.fmt(f),
+
+            #[cfg(feature = "download")]
+            Self::Download(e) => e.fmt(f),
         }
     }
 }
@@ -153,6 +160,20 @@ impl fmt::Display for InvalidStateError {
 
 impl Error for InvalidStateError {}
 
+#[cfg(feature = "download")]
+#[derive(Debug, thiserror::Error)]
+pub enum DownloadError {
+    #[error("Network request failed")]
+    Request(#[from] reqwest::Error),
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Downloaded file checksum mismatch. It may be corrupted.")]
+    HashMismatch,
+    #[error("Extracted dictionary checksum mismatch. The extracted file may be corrupted.")]
+    ExtractedHashMismatch,
+    #[error("HTTP error: {0}")]
+    HttpStatus(reqwest::StatusCode),
+}
 
 impl From<std::num::TryFromIntError> for VibratoError {
     fn from(error: std::num::TryFromIntError) -> Self {

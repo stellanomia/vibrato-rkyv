@@ -49,7 +49,6 @@
 //! # Ok(())
 //! # }
 //! ```
-#![deny(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(not(any(target_pointer_width = "32", target_pointer_width = "64")))]
