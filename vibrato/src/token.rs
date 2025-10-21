@@ -5,14 +5,14 @@ use crate::dictionary::{word_idx::WordIdx, LexType};
 use crate::tokenizer::worker::Worker;
 
 /// Resultant token.
-pub struct Token<'w, 't> {
-    worker: &'w Worker<'t>,
+pub struct Token<'w> {
+    worker: &'w Worker,
     index: usize,
 }
 
-impl<'w, 't> Token<'w, 't> {
+impl<'w> Token<'w> {
     #[inline(always)]
-    pub(crate) const fn new(worker: &'w Worker<'t>, index: usize) -> Self {
+    pub(crate) const fn new(worker: &'w Worker, index: usize) -> Self {
         Self { worker, index }
     }
 
@@ -46,7 +46,7 @@ impl<'w, 't> Token<'w, 't> {
 
     /// Gets the feature string of the token.
     #[inline(always)]
-    pub fn feature(&self) -> &'t str {
+    pub fn feature(&self) -> &str {
         self.worker
             .tokenizer
             .dictionary()
@@ -90,9 +90,23 @@ impl<'w, 't> Token<'w, 't> {
         let (_, node) = &self.worker.top_nodes[self.index];
         node.min_cost
     }
+
+    pub fn to_buf(&self) -> TokenBuf {
+        TokenBuf {
+            surface: self.surface().to_string(),
+            feature: self.feature().to_string(),
+            range_char: self.range_char(),
+            range_byte: self.range_byte(),
+            lex_type: self.lex_type(),
+            left_id: self.left_id(),
+            right_id: self.right_id(),
+            word_cost: self.word_cost(),
+            total_cost: self.total_cost(),
+        }
+    }
 }
 
-impl std::fmt::Debug for Token<'_, '_> {
+impl std::fmt::Debug for Token<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Token")
             .field("surface", &self.surface())
@@ -109,20 +123,20 @@ impl std::fmt::Debug for Token<'_, '_> {
 }
 
 /// Iterator of tokens.
-pub struct TokenIter<'w, 't> {
-    worker: &'w Worker<'t>,
+pub struct TokenIter<'w> {
+    worker: &'w Worker,
     i: usize,
 }
 
-impl<'w, 't> TokenIter<'w, 't> {
+impl<'w> TokenIter<'w> {
     #[inline(always)]
-    pub(crate) const fn new(worker: &'w Worker<'t>, i: usize) -> Self {
+    pub(crate) const fn new(worker: &'w Worker, i: usize) -> Self {
         Self { worker, i }
     }
 }
 
-impl<'w, 't> Iterator for TokenIter<'w, 't> {
-    type Item = Token<'w, 't>;
+impl<'w> Iterator for TokenIter<'w> {
+    type Item = Token<'w>;
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
@@ -133,6 +147,30 @@ impl<'w, 't> Iterator for TokenIter<'w, 't> {
         } else {
             None
         }
+    }
+}
+
+/// An owned, self-contained token.
+///
+/// This struct is the owned counterpart to [`Token`].
+/// It is useful for storing tokenization results or
+/// sending them across threads.
+#[derive(Debug, Clone)]
+pub struct TokenBuf {
+    pub surface: String,
+    pub feature: String,
+    pub range_char: Range<usize>,
+    pub range_byte: Range<usize>,
+    pub lex_type: LexType,
+    pub left_id: u16,
+    pub right_id: u16,
+    pub word_cost: i16,
+    pub total_cost: i32,
+}
+
+impl<'w> From<Token<'w>> for TokenBuf {
+    fn from(token: Token<'w>) -> Self {
+        token.to_buf()
     }
 }
 

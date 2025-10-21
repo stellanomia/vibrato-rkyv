@@ -2,6 +2,8 @@
 pub(crate) mod lattice;
 pub mod worker;
 
+use std::sync::Arc;
+
 use rkyv::Archived;
 
 use crate::Dictionary;
@@ -13,8 +15,9 @@ use crate::tokenizer::lattice::Lattice;
 use crate::tokenizer::worker::Worker;
 
 /// Tokenizer.
+#[derive(Clone)]
 pub struct Tokenizer {
-    dict: Dictionary,
+    dict: Arc<Dictionary>,
     // For the MeCab compatibility
     space_cateset: Option<u32>,
     max_grouping_len: Option<usize>,
@@ -26,7 +29,20 @@ impl Tokenizer {
     /// # Arguments
     ///
     ///  - `dict`: Dictionary to be used.
-    pub const fn new(dict: Dictionary) -> Self {
+    pub fn new(dict: Dictionary) -> Self {
+        Self {
+            dict: Arc::new(dict),
+            space_cateset: None,
+            max_grouping_len: None,
+        }
+    }
+
+    /// Creates a new Tokenizer from a shared Dictionary.
+    ///
+    // This is useful for multi-threaded scenarios where multiple
+    /// Tokenizer instances need to share the same dictionary data
+    /// without reloading it.
+    pub fn with_shared_dictionary(dict: Arc<Dictionary>) -> Self {
         Self {
             dict,
             space_cateset: None,
@@ -83,8 +99,8 @@ impl Tokenizer {
     }
 
     /// Creates a new worker.
-    pub fn new_worker(&self) -> Worker<'_> {
-        Worker::new(self)
+    pub fn new_worker(&self) -> Worker {
+        Worker::new(self.clone())
     }
 
     pub(crate) fn build_lattice(&self, sent: &Sentence, lattice: &mut Lattice) {
