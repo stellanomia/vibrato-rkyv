@@ -36,7 +36,7 @@ fn bench_vibrato_rkyv_dictionary_load(c: &mut Criterion) {
     let mut group = c.benchmark_group("DictionaryLoad");
     group.throughput(Throughput::Bytes(file_size));
 
-    group.sample_size(500);
+    group.sample_size(50);
 
     // vibrato-rkyv (from_path)
     group.bench_function("vibrato-rkyv/from_path/warm", |b| {

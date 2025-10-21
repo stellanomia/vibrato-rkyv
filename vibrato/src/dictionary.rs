@@ -41,6 +41,11 @@ pub(crate) use crate::dictionary::lexicon::WordParam;
 /// Magic bytes identifying Vibrato Tokenizer with rkyv v0.6 model file.
 pub const MODEL_MAGIC: &[u8] = b"VibratoTokenizerRkyv 0.6\n";
 
+const MODEL_MAGIC_LEN: usize = MODEL_MAGIC.len();
+const RKYV_ALIGNMENT: usize = 16;
+const PADDING_LEN: usize = (RKYV_ALIGNMENT - (MODEL_MAGIC_LEN % RKYV_ALIGNMENT)) % RKYV_ALIGNMENT;
+const DATA_START: usize = MODEL_MAGIC_LEN + PADDING_LEN;
+
 /// Prefix of magic bytes for legacy bincode-based models.
 pub const LEGACY_MODEL_MAGIC_PREFIX: &[u8] = b"VibratoTokenizer 0.";
 
@@ -163,11 +168,7 @@ impl DictionaryInner {
     {
         wtr.write_all(MODEL_MAGIC)?;
 
-        const RKYV_ALIGNMENT: usize = 16;
-        let magic_len = MODEL_MAGIC.len();
-        let padding_len = (RKYV_ALIGNMENT - (magic_len % RKYV_ALIGNMENT)) % RKYV_ALIGNMENT;
-
-        let padding_bytes = vec![0xFF; padding_len];
+        let padding_bytes = vec![0xFF; PADDING_LEN];
         wtr.write_all(&padding_bytes)?;
 
         with_arena(|arena: &mut Arena| {
@@ -240,36 +241,32 @@ impl Dictionary {
     /// Returns an error if the file cannot be opened, is corrupted,
     /// or was created with an incompatible version of vibrato.
     pub fn from_path<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
-        let file = File::open(path.as_ref()).map_err(|e| {
+        let mut file = File::open(path.as_ref()).map_err(|e| {
             VibratoError::invalid_argument("path", format!("Failed to open dictionary file: {}", e))
         })?;
-        let mmap = unsafe { Mmap::map(&file)? };
+        let mut magic_buf = [0u8; MODEL_MAGIC_LEN];
+        file.read_exact(&mut magic_buf)?;
 
-        if mmap.starts_with(LEGACY_MODEL_MAGIC_PREFIX) {
+        if magic_buf.starts_with(LEGACY_MODEL_MAGIC_PREFIX) {
             return Err(VibratoError::invalid_argument(
                 "path",
                 "This appears to be a legacy bincode-based dictionary file. Please use a dictionary compiled for the rkyv version of vibrato.",
             ));
-        } else if !mmap.starts_with(MODEL_MAGIC) {
+        } else if !magic_buf.starts_with(MODEL_MAGIC) {
             return Err(VibratoError::invalid_argument(
                 "path",
                 "The magic number of the input model mismatches.",
             ));
         }
 
-        const RKYV_ALIGNMENT: usize = 16;
-        let magic_len = MODEL_MAGIC.len();
-        let padding_len = (RKYV_ALIGNMENT - (magic_len % RKYV_ALIGNMENT)) % RKYV_ALIGNMENT;
-        let data_start = magic_len + padding_len;
+        let mmap = unsafe { Mmap::map(&file)? };
 
-        if mmap.len() <= data_start {
+        let Some(data_bytes) = &mmap.get(DATA_START..) else {
             return Err(VibratoError::invalid_argument(
                 "path",
                 "Dictionary file too small or corrupted.",
             ));
-        }
-
-        let data_bytes = &mmap[data_start..];
+        };
 
         #[cfg(not(debug_assertions))]
         {
@@ -330,7 +327,7 @@ impl Dictionary {
     /// Returns an error if the data cannot be read or if its contents are invalid.
     pub fn read<R: Read>(mut rdr: R) -> Result<Self> {
         const RKYV_ALIGNMENT: usize = 16;
-        let mut magic = [0; MODEL_MAGIC.len()];
+        let mut magic = [0; MODEL_MAGIC_LEN];
         rdr.read_exact(&mut magic)?;
 
         if magic.starts_with(LEGACY_MODEL_MAGIC_PREFIX) {
@@ -345,8 +342,7 @@ impl Dictionary {
             ));
         }
 
-        let magic_len = MODEL_MAGIC.len();
-        let padding_len = (RKYV_ALIGNMENT - (magic_len % RKYV_ALIGNMENT)) % RKYV_ALIGNMENT;
+        let padding_len = (RKYV_ALIGNMENT - (MODEL_MAGIC_LEN % RKYV_ALIGNMENT)) % RKYV_ALIGNMENT;
         if padding_len > 0 {
             let mut padding_buf = vec![0; padding_len];
             rdr.read_exact(&mut padding_buf)?;
