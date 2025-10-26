@@ -34,9 +34,11 @@ use crate::errors::{Result, VibratoError};
 
 pub use crate::dictionary::builder::SystemDictionaryBuilder;
 pub use crate::dictionary::word_idx::WordIdx;
-pub use crate::dictionary::config::PresetDictionaryKind;
 
 pub(crate) use crate::dictionary::lexicon::WordParam;
+
+#[cfg(feature = "download")]
+pub use crate::dictionary::config::PresetDictionaryKind;
 
 /// Magic bytes identifying Vibrato Tokenizer with rkyv v0.6 model file.
 pub const MODEL_MAGIC: &[u8] = b"VibratoTokenizerRkyv 0.6\n";
@@ -59,19 +61,15 @@ pub const LEGACY_MODEL_MAGIC_PREFIX: &[u8] = b"VibratoTokenizer 0.";
     derive(Debug, Eq, PartialEq, Hash, Clone, Copy),
 )]
 #[repr(u8)]
+#[derive(Default)]
 pub enum LexType {
     /// System lexicon.
+    #[default]
     System,
     /// User lexicon.
     User,
     /// Unknown words.
     Unknown,
-}
-
-impl Default for LexType {
-    fn default() -> Self {
-        Self::System
-    }
 }
 
 impl ArchivedLexType {
@@ -104,13 +102,22 @@ enum DictBuffer {
 }
 
 /// A read-only dictionary for tokenization, loaded via zero-copy deserialization.
-pub struct Dictionary {
+pub enum Dictionary {
+    Archived(ArchivedDictionary),
+    Owned(Box<DictionaryInner>),
+}
+
+pub struct ArchivedDictionary {
     _buffer: DictBuffer,
-    // The 'static lifetime is safe because we hold the buffer in `_buffer`.
     data: &'static ArchivedDictionaryInner,
 }
 
-impl Deref for Dictionary {
+pub(crate) enum DictionaryInnerRef<'a> {
+    Archived(&'a ArchivedDictionaryInner),
+    Owned(&'a DictionaryInner),
+}
+
+impl Deref for ArchivedDictionary {
     type Target = ArchivedDictionaryInner;
     fn deref(&self) -> &Self::Target {
         self.data
@@ -156,6 +163,20 @@ impl DictionaryInner {
             LexType::System => self.system_lexicon().word_feature(word_idx),
             LexType::User => self.user_lexicon().unwrap().word_feature(word_idx),
             LexType::Unknown => self.unk_handler().word_feature(word_idx),
+        }
+    }
+
+    pub(crate) fn connector(&self) -> &ConnectorWrapper {
+        &self.connector
+    }
+
+    /// Gets the word parameter.
+    #[inline(always)]
+    pub(crate) fn word_param(&self, word_idx: WordIdx) -> WordParam {
+        match word_idx.lex_type {
+            LexType::System => self.system_lexicon().word_param(word_idx),
+            LexType::User => self.user_lexicon().as_ref().unwrap().word_param(word_idx),
+            LexType::Unknown => self.unk_handler().word_param(word_idx),
         }
     }
 
@@ -227,6 +248,11 @@ impl DictionaryInner {
 }
 
 impl Dictionary {
+    /// Creates a dictionary from `DictionaryInner`.
+    pub fn from_inner(dict: DictionaryInner) -> Self {
+        Self::Owned(Box::new(dict))
+    }
+
     /// Creates a dictionary from a file path using memory-mapping for fast loading.
     ///
     /// This function maps the dictionary file into memory and provides zero-copy access to it,
@@ -274,22 +300,24 @@ impl Dictionary {
             let archived = unsafe { access_unchecked::<ArchivedDictionaryInner>(data_bytes) };
             let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
             return Ok(
-                Self {
-                    _buffer: DictBuffer::Mmap(mmap),
-                    data,
-                }
-            );
-
+                Self::Archived(
+                    ArchivedDictionary {
+                        _buffer: DictBuffer::Mmap(mmap),
+                        data,
+                    }
+            ));
         }
 
         #[allow(unreachable_code)]
         match access::<ArchivedDictionaryInner, Error>(data_bytes) {
             Ok(archived) => {
                 let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
-                Ok(Self {
-                    _buffer: DictBuffer::Mmap(mmap),
-                    data,
-                })
+                Ok(Self::Archived(
+                    ArchivedDictionary {
+                        _buffer: DictBuffer::Mmap(mmap),
+                        data,
+                    }
+                ))
             }
             Err(_) => {
                 let mut aligned_bytes = AlignedVec::with_capacity(data_bytes.len());
@@ -303,10 +331,12 @@ impl Dictionary {
                 })?;
 
                 let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
-                Ok(Self {
-                    _buffer: DictBuffer::Aligned(aligned_bytes),
-                    data,
-                })
+                Ok(Self::Archived(
+                    ArchivedDictionary {
+                        _buffer: DictBuffer::Aligned(aligned_bytes),
+                        data,
+                    }
+                ))
             }
         }
     }
@@ -326,7 +356,6 @@ impl Dictionary {
     ///
     /// Returns an error if the data cannot be read or if its contents are invalid.
     pub fn read<R: Read>(mut rdr: R) -> Result<Self> {
-        const RKYV_ALIGNMENT: usize = 16;
         let mut magic = [0; MODEL_MAGIC_LEN];
         rdr.read_exact(&mut magic)?;
 
@@ -342,11 +371,8 @@ impl Dictionary {
             ));
         }
 
-        let padding_len = (RKYV_ALIGNMENT - (MODEL_MAGIC_LEN % RKYV_ALIGNMENT)) % RKYV_ALIGNMENT;
-        if padding_len > 0 {
-            let mut padding_buf = vec![0; padding_len];
-            rdr.read_exact(&mut padding_buf)?;
-        }
+        let mut padding_buf = vec![0; PADDING_LEN];
+        rdr.read_exact(&mut padding_buf)?;
 
         let mut buffer = Vec::new();
         rdr.read_to_end(&mut buffer)?;
@@ -365,10 +391,11 @@ impl Dictionary {
         // SAFETY: AlignedVec ensures correct alignment for ArchivedDictionaryInner
         let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
 
-        Ok(Self {
-            _buffer: DictBuffer::Aligned(aligned_bytes),
-            data,
-        })
+        Ok(
+            Self::Archived(
+                ArchivedDictionary { _buffer: DictBuffer::Aligned(aligned_bytes), data }
+            )
+        )
     }
 
     /// Loads a dictionary from a Zstandard-compressed file, with automatic caching.

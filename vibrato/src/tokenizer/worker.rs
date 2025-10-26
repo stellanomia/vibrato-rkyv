@@ -1,4 +1,5 @@
 //! Provider of a routine for tokenization.
+use crate::dictionary::DictionaryInnerRef;
 use crate::dictionary::connector::ConnectorView;
 use crate::dictionary::mapper::{ConnIdCounter, ConnIdProbs};
 use crate::sentence::Sentence;
@@ -40,7 +41,14 @@ impl Worker {
         let input = input.as_ref();
         if !input.is_empty() {
             self.sent.set_sentence(input);
-            self.sent.compile_archived(self.tokenizer.dictionary().char_prop());
+            match self.tokenizer.dictionary() {
+                DictionaryInnerRef::Archived(dict) => {
+                    self.sent.compile_archived(dict.char_prop());
+                },
+                DictionaryInnerRef::Owned(dict) => {
+                    self.sent.compile(dict.char_prop());
+                },
+            }
         }
     }
 
@@ -75,10 +83,15 @@ impl Worker {
 
     /// Initializes a counter to compute occurrence probabilities of connection ids.
     pub fn init_connid_counter(&mut self) {
-        let connector = self.tokenizer.dictionary().connector();
+        let (num_left, num_right) = match self.tokenizer.dictionary() {
+            DictionaryInnerRef::Archived(dict) =>
+                (dict.connector().num_left(), dict.connector().num_right()),
+            DictionaryInnerRef::Owned(dict) =>
+                (dict.connector().num_left(), dict.connector().num_right()),
+        };
         self.counter = Some(ConnIdCounter::new(
-            connector.num_left(),
-            connector.num_right(),
+            num_left,
+            num_right,
         ));
     }
 

@@ -22,10 +22,7 @@ fn build_test_dictionary(
             unk_def
         ).unwrap();
 
-    let mut buffer = Vec::new();
-    dict_inner.write(&mut buffer).unwrap();
-
-    Dictionary::read(buffer.as_slice()).unwrap()
+    Dictionary::from_inner(dict_inner)
 }
 
 
@@ -138,11 +135,9 @@ fn test_tokenize_kyotokyo_with_user() {
                 unk_def
             ).unwrap();
 
-        let mut buffer = Vec::new();
         let dict_inner = dict_inner.reset_user_lexicon_from_reader(Some(USER_CSV.as_bytes())).unwrap();
-        dict_inner.write(&mut buffer).unwrap();
 
-        Dictionary::read(buffer.as_slice()).unwrap()
+        Dictionary::from_inner(dict_inner)
     };
 
     let tokenizer = Tokenizer::new(dict);
@@ -434,11 +429,9 @@ fn test_tokenize_kampersanda_with_user() {
                 unk_def
             ).unwrap();
 
-        let mut buffer = Vec::new();
         let dict_inner = dict_inner.reset_user_lexicon_from_reader(Some(USER_CSV.as_bytes())).unwrap();
-        dict_inner.write(&mut buffer).unwrap();
 
-        Dictionary::read(buffer.as_slice()).unwrap()
+        Dictionary::from_inner(dict_inner)
     };
 
     let tokenizer = Tokenizer::new(dict);

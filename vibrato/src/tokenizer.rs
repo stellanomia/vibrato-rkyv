@@ -4,11 +4,9 @@ pub mod worker;
 
 use std::sync::Arc;
 
-use rkyv::Archived;
-
 use crate::Dictionary;
-use crate::dictionary::connector::{ArchivedConnectorWrapper, ConnectorCost};
-use crate::dictionary::DictionaryInner;
+use crate::dictionary::connector::{ArchivedConnectorWrapper, ConnectorCost, ConnectorWrapper};
+use crate::dictionary::{ArchivedDictionaryInner, DictionaryInner, DictionaryInnerRef};
 use crate::errors::{Result, VibratoError};
 use crate::sentence::Sentence;
 use crate::tokenizer::lattice::Lattice;
@@ -37,12 +35,21 @@ impl Tokenizer {
         }
     }
 
+    /// Creates a new tokenizer from `DictionaryInner`.
+    pub fn from_inner(dict: DictionaryInner) -> Self {
+        Self {
+            dict: Arc::new(Dictionary::Owned(Box::new(dict))),
+            space_cateset: None,
+            max_grouping_len: None,
+        }
+    }
+
     /// Creates a new Tokenizer from a shared Dictionary.
     ///
     // This is useful for multi-threaded scenarios where multiple
     /// Tokenizer instances need to share the same dictionary data
     /// without reloading it.
-    pub fn with_shared_dictionary(dict: Arc<Dictionary>) -> Self {
+    pub fn from_shared_dictionary(dict: Arc<Dictionary>) -> Self {
         Self {
             dict,
             space_cateset: None,
@@ -60,12 +67,16 @@ impl Tokenizer {
     /// [`VibratoError`] is returned when category `SPACE` is not defined in the input dictionary.
     pub fn ignore_space(mut self, yes: bool) -> Result<Self> {
         if yes {
-            let cate_id = self.dict.char_prop().cate_id("SPACE").ok_or_else(|| {
+            let cate_id = match &*self.dict {
+                Dictionary::Archived(archived_dictionary) => archived_dictionary.char_prop().cate_id("SPACE"),
+                Dictionary::Owned(dictionary_inner) => dictionary_inner.char_prop().cate_id("SPACE"),
+            }.ok_or_else(|| {
                 VibratoError::invalid_argument(
                     "dict",
                     "SPACE is not defined in the input dictionary (i.e., char.def).",
                 )
             })?;
+
             self.space_cateset = Some(1 << cate_id);
         } else {
             self.space_cateset = None;
@@ -94,8 +105,11 @@ impl Tokenizer {
     }
 
     /// Gets the reference to the dictionary.
-    pub fn dictionary(&self) -> &Archived<DictionaryInner> {
-        &self.dict
+    pub(crate) fn dictionary<'a>(&'a self) -> DictionaryInnerRef<'a> {
+        match &*self.dict {
+            Dictionary::Archived(archived_dictionary) => DictionaryInnerRef::Archived(archived_dictionary),
+            Dictionary::Owned(dictionary_inner) => DictionaryInnerRef::Owned(dictionary_inner),
+        }
     }
 
     /// Creates a new worker.
@@ -104,10 +118,17 @@ impl Tokenizer {
     }
 
     pub(crate) fn build_lattice(&self, sent: &Sentence, lattice: &mut Lattice) {
-        match self.dict.connector() {
-            ArchivedConnectorWrapper::Matrix(c) => self.build_lattice_inner(sent, lattice, c),
-            ArchivedConnectorWrapper::Raw(c) => self.build_lattice_inner(sent, lattice, c),
-            ArchivedConnectorWrapper::Dual(c) => self.build_lattice_inner(sent, lattice, c),
+        match &*self.dict {
+            Dictionary::Archived(archived_dictionary) => match archived_dictionary.connector() {
+                ArchivedConnectorWrapper::Matrix(c) => self.build_lattice_inner(sent, lattice, c),
+                ArchivedConnectorWrapper::Raw(c) => self.build_lattice_inner(sent, lattice, c),
+                ArchivedConnectorWrapper::Dual(c) => self.build_lattice_inner(sent, lattice, c),
+            },
+            Dictionary::Owned(dictionary_inner) => match dictionary_inner.connector() {
+                ConnectorWrapper::Matrix(c) => self.build_lattice_inner(sent, lattice, c),
+                ConnectorWrapper::Raw(c) => self.build_lattice_inner(sent, lattice, c),
+                ConnectorWrapper::Dual(c) => self.build_lattice_inner(sent, lattice, c),
+            },
         }
     }
 
@@ -157,7 +178,70 @@ impl Tokenizer {
 
         lattice.insert_eos(start_node, connector);
     }
+}
 
+macro_rules! add_lattice_edges_logic {
+    (
+        // self is required to access max_grouping_len
+        $self:expr,
+        $sent:expr,
+        $lattice:expr,
+        $start_node:expr,
+        $start_word:expr,
+        $connector:expr,
+        $dict:expr,
+    ) => {{
+        let mut has_matched = false;
+        let suffix = &$sent.chars()[$start_word..];
+
+        if let Some(user_lexicon) = $dict.user_lexicon().as_ref() {
+            for m in user_lexicon.common_prefix_iterator(suffix) {
+                debug_assert!($start_word + m.end_char <= $sent.len_char());
+                $lattice.insert_node(
+                    $start_node,
+                    $start_word,
+                    $start_word + m.end_char,
+                    m.word_idx,
+                    m.word_param,
+                    $connector,
+                );
+                has_matched = true;
+            }
+        }
+
+        for m in $dict.system_lexicon().common_prefix_iterator(suffix) {
+            debug_assert!($start_word + m.end_char <= $sent.len_char());
+            $lattice.insert_node(
+                $start_node,
+                $start_word,
+                $start_word + m.end_char,
+                m.word_idx,
+                m.word_param,
+                $connector,
+            );
+            has_matched = true;
+        }
+
+        $dict.unk_handler().gen_unk_words(
+            $sent,
+            $start_word,
+            has_matched,
+            $self.max_grouping_len,
+            |w| {
+                $lattice.insert_node(
+                    $start_node,
+                    w.start_char(),
+                    w.end_char(),
+                    w.word_idx(),
+                    w.word_param(),
+                    $connector,
+                );
+            },
+        );
+    }};
+}
+
+impl Tokenizer {
     fn add_lattice_edges<C>(
         &self,
         sent: &Sentence,
@@ -168,54 +252,58 @@ impl Tokenizer {
     ) where
         C: ConnectorCost,
     {
-        let mut has_matched = false;
-
-        let suffix = &sent.chars()[start_word..];
-
-        if let Some(user_lexicon) = self.dict.user_lexicon().as_ref() {
-            for m in user_lexicon.common_prefix_iterator(suffix) {
-                debug_assert!(start_word + m.end_char <= sent.len_char());
-                lattice.insert_node(
-                    start_node,
-                    start_word,
-                    start_word + m.end_char,
-                    m.word_idx,
-                    m.word_param,
-                    connector,
-                );
-                has_matched = true;
+        match self.dictionary() {
+            DictionaryInnerRef::Archived(dict) => {
+                self.add_lattice_edges_archived(sent, lattice, start_node, start_word, connector, dict)
+            }
+            DictionaryInnerRef::Owned(dict) => {
+                self.add_lattice_edges_owned(sent, lattice, start_node, start_word, connector, dict)
             }
         }
+    }
 
-        for m in self.dict.system_lexicon().common_prefix_iterator(suffix) {
-            debug_assert!(start_word + m.end_char <= sent.len_char());
-            lattice.insert_node(
-                start_node,
-                start_word,
-                start_word + m.end_char,
-                m.word_idx,
-                m.word_param,
-                connector,
-            );
-            has_matched = true;
-        }
-
-        self.dict.unk_handler().gen_unk_words(
+    fn add_lattice_edges_archived<C>(
+        &self,
+        sent: &Sentence,
+        lattice: &mut Lattice,
+        start_node: usize,
+        start_word: usize,
+        connector: &C,
+        dict: &ArchivedDictionaryInner,
+    ) where
+        C: ConnectorCost,
+    {
+        add_lattice_edges_logic!(
+            self,
             sent,
+            lattice,
+            start_node,
             start_word,
-            has_matched,
-            self.max_grouping_len,
-            |w| {
-                lattice.insert_node(
-                    start_node,
-                    w.start_char(),
-                    w.end_char(),
-                    w.word_idx(),
-                    w.word_param(),
-                    connector,
-                );
-            },
-        );
+            connector,
+            dict,
+        )
+    }
+
+    fn add_lattice_edges_owned<C>(
+        &self,
+        sent: &Sentence,
+        lattice: &mut Lattice,
+        start_node: usize,
+        start_word: usize,
+        connector: &C,
+        dict: &DictionaryInner,
+    ) where
+        C: ConnectorCost,
+    {
+        add_lattice_edges_logic!(
+            self,
+            sent,
+            lattice,
+            start_node,
+            start_word,
+            connector,
+            dict,
+        )
     }
 }
 
@@ -240,10 +328,7 @@ mod tests {
                 unk_def
             ).unwrap();
 
-        let mut buffer = Vec::new();
-        dict_inner.write(&mut buffer).unwrap();
-
-        Dictionary::read(buffer.as_slice()).unwrap()
+        Dictionary::from_inner(dict_inner)
     }
 
     #[test]
