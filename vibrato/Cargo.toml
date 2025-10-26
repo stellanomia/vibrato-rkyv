@@ -35,6 +35,9 @@ zstd = "0.13.3"
 [dev-dependencies]
 criterion = { version = "0.7.0", features = ["html_reports"] }
 vibrato = "0.5.2"
+sudachi = { git = "https://github.com/WorksApplications/sudachi.rs.git", rev = "54e85e8f7e0a6c4b570cd7b103506b080dc60c92" }
+zip = "6.0.0"
+xz2 = "0.1.7"
 
 [features]
 default = ["train", "download"]
@@ -43,9 +46,21 @@ train = ["rucrf-rkyv"]
 download = ["dep:reqwest", "dep:tar"]
 
 [[bench]]
-name = "vibrato_init_bench"
+name = "vibrato_init"
 harness = false
 
 [[bench]]
-name = "vibrato_rkyv_init_bench"
+name = "vibrato_init_zstd"
+harness = false
+
+[[bench]]
+name = "vibrato_rkyv_init"
+harness = false
+
+[[bench]]
+name = "tokenization"
+harness = false
+
+[[bench]]
+name = "tokenization_sudachi"
 harness = false

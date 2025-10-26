@@ -2,11 +2,11 @@
 resolver = "2"
 members = [
     "vibrato",
-    "compile",
+    "compiler",
     "map",
     "tokenize",
-    "benchmark",
-    "train",
-    "dictgen",
     "evaluate",
+]
+exclude = [
+    "compiler/vendor/vibrato"
 ]

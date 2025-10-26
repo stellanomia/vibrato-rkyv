@@ -21,6 +21,13 @@ impl PresetDictionaryKind {
             PresetDictionaryKind::Unidic => &UNIDIC,
         }
     }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            PresetDictionaryKind::Ipadic => IPADIC.name,
+            PresetDictionaryKind::Unidic => UNIDIC.name,
+        }
+    }
 }
 
 pub(crate) static IPADIC: DictionaryMeta = DictionaryMeta {
