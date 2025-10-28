@@ -5,9 +5,90 @@
 [![Crates.io](https://img.shields.io/crates/v/vibrato-rkyv)](https://crates.io/crates/vibrato-rkyv)
 [![Documentation](https://docs.rs/vibrato-rkyv/badge.svg)](https://docs.rs/vibrato-rkyv)
 [![Build Status](https://github.com/stellanomia/vibrato-rkyv/actions/workflows/rust.yml/badge.svg)](https://github.com/stellanomia/vibrato-rkyv/actions)
-[![Build Status](https://github.com/daac-tools/vibrato/actions/workflows/rust.yml/badge.svg)](https://github.com/daac-tools/vibrato/actions)
 
 Vibrato is a fast implementation of tokenization (or morphological analysis) based on the Viterbi algorithm.
+
+## Significantly Faster Dictionary Loading with `rkyv`
+
+`vibrato-rkyv` utilizes the [`rkyv`](https://rkyv.org/) zero-copy deserialization framework to achieve a significant speedup in dictionary loading. By memory-mapping the dictionary file, it can be made available for use almost instantaneously.
+
+The benchmark results below compare loading from both uncompressed and `zstd`-compressed files, demonstrating the performance difference.
+
+### From Uncompressed File (`.dic`)
+
+| Condition | Original `vibrato` (Read from stream) | `vibrato-rkyv` (Memory-mapped) | Speedup |
+| :--- | :--- | :--- | :--- |
+| Cold Start | ~42 s | ~1.1 ms | ~38,000x |
+| Warm Start | ~34 s | ~3.0 μs | ~11,000,000x |
+
+### From Zstd-Compressed File (`.dic.zst`)
+
+| Condition | Original `vibrato` (Read from stream) | `vibrato-rkyv` (with caching) | Speedup |
+| :--- | :--- | :--- | :--- |
+| 1st Run (Cold) | ~4.6 s | ~1.3 s | ~3.5x |
+| Subsequent Runs (Cache-hit) | ~4.5 s | ~6.5 μs | ~700,000x |
+
+<small>*`vibrato-rkyv` automatically decompresses and caches the dictionary on the first run, using the memory-mapped cache for subsequent loads.*</small>
+<br>
+<small>*Benchmarks were conducted with UniDic-cwj v3.1.1 (approx. 700MB uncompressed dictionary binary).*</small>
+
+To take advantage of this performance, use the `Dictionary::from_path` or `Dictionary::from_zstd` methods:
+
+```rust
+use vibrato_rkyv::Dictionary;
+
+// Recommended for uncompressed dictionaries:
+// Almost instantaneous loading via memory-mapping.
+let dict_mmap = Dictionary::from_path("path/to/system.dic")?;
+
+// Recommended for zstd-compressed dictionaries:
+// Decompresses and caches on the first run, then uses memory-mapping.
+let dict_zstd = Dictionary::from_zstd("path/to/system.dic.zst")?;
+```
+
+## Differences
+
+The following summarizes key differences from the original implementation.
+
+### Differences from Original `vibrato`
+
+If you are migrating from the original `daac-tools/vibrato`, please note the following key changes:
+
+1. **Incompatible Dictionary Format:** Dictionaries must be (re)compiled using the `vibrato-rkyv` toolchain. Due to the switch to the `rkyv` format, dictionaries from the original `vibrato` are **not compatible**. A `transmute` command is provided to convert legacy `bincode`-formatted dictionaries (see [Toolchain](#unified-toolchain) below).
+
+2. **User Dictionaries Must Be Pre-compiled:** The `--user-dic` runtime option has been removed. User dictionaries must now be compiled into the system dictionary beforehand. This design choice supports the zero-copy, immutable model of `rkyv`.  
+  However, this does not mean dictionaries are purely static. While you cannot modify a dictionary *after* it has been loaded, you can dynamically construct a dictionary in memory (e.g., using `SystemDictionaryBuilder`) and create a `Tokenizer` from it using `Dictionary::from_inner()`. This is useful for scenarios where dictionary contents are generated at runtime before tokenization begins.
+
+3. **New Recommended Loading APIs:** For maximum performance, use `Dictionary::from_path()` for uncompressed files and `Dictionary::from_zstd()` for `zstd`-compressed files. These methods leverage memory-mapping and caching for near-instantaneous loading. While `Dictionary::read()` is still available for generic readers, it is less efficient.
+
+```rust
+use vibrato_rkyv::Dictionary;
+
+// Recommended: Zero-copy loading via memory-mapping.
+let dict = Dictionary::from_path("path/to/system.dic")?;
+```
+
+### Additional Improvements
+
+Beyond the core change to `rkyv` for faster loading, `vibrato-rkyv` includes several other significant enhancements over the original implementation:
+
+* **Unified and Enhanced Toolchain (`compiler`)**  
+  The `train`, `dictgen`, and `compile` executables have been consolidated into a single, more powerful `compiler` tool. This simplifies the dictionary creation workflow with a clear subcommand structure (`train`, `dictgen`, `build`). It also adds:
+  * `full-build`: A convenient command to run the entire train-generate-build process in one go.
+  * `transmute`: A utility to convert legacy `bincode`-formatted dictionaries from the original `vibrato` to the new `rkyv` format.
+
+* **Flexible `Tokenizer`**  
+  The `Tokenizer` API has been redesigned for better flexibility, resolving a long-standing design limitation ([upstream issue #99](https://github.com/daac-tools/vibrato/issues/99)).
+  * It is now cheaply `Clone`-able (internally using `Arc<Dictionary>`).
+  * New constructors like `Tokenizer::from_inner(DictionaryInner)` allow for creating a tokenizer directly from a dynamically built dictionary instance, enhancing flexibility for testing and applications that generate dictionaries on-the-fly.
+
+* **Owned Token Type (`TokenBuf`)**  
+  A new owned token type, `TokenBuf`, has been introduced alongside the existing borrowed `Token<'a>`. Following the familiar `Path`/`PathBuf` pattern in Rust's standard library. This makes it easy to store tokenization results, modify them, or send them across threads without lifetime complications.
+
+* **Built-in Dictionary Downloader and Manager**  
+  Getting started is now easier than ever. You can download and set up pre-compiled preset dictionaries (e.g., IPADIC, UNIDIC) with a single function call.
+  * `Dictionary::from_preset_with_download()`: Handles downloading, checksum verification, and caching automatically.
+  * `Dictionary::from_zstd()`: Intelligently manages `zstd`-compressed dictionaries by decompressing them to a local cache on the first run and using the fast memory-mapped version on all subsequent loads.
 
 ## Features
 
@@ -39,26 +120,84 @@ The detailed description can be found [here](./docs/train.md).
 This software is implemented in Rust.
 First of all, install `rustc` and `cargo` following the [official instructions](https://www.rust-lang.org/tools/install).
 
-### 1. Dictionary preparation
 
-You can easily get started by downloading a precompiled dictionary compatible with this version.
+### As a Rust Library (Recommended)
 
-You must compile system dictionaries from raw resources using the `compile` command included in this repository. Dictionaries compiled with the original `vibrato` are **not compatible**.
+The easiest way to get started is by using `vibrato-rkyv` as a library and downloading a pre-compiled preset dictionary.
 
+**1. Add `vibrato-rkyv` to your dependencies**
+
+Add the following to your `Cargo.toml`. The dictionary download feature is enabled by default.
+
+```toml
+[dependencies]
+vibrato-rkyv = "x.y.z"
 ```
+
+**2. Download a dictionary and tokenize text**
+
+The `Dictionary::from_preset_with_download()` function handles everything: downloading, verifying the checksum, and caching the dictionary in a specified directory for future runs.
+
+```rust
+use std::path::PathBuf;
+use vibrato_rkyv::{dictionary::PresetDictionaryKind, Dictionary, Tokenizer};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Specify a directory to cache the dictionary.
+    let mut cache_dir = dirs::cache_dir().unwrap_or_else(|| PathBuf::from(".cache"));
+    cache_dir.push("vibrato-rkyv");
+    std::fs::create_dir_all(&cache_dir)?;
+
+    // Downloads and loads a preset dictionary (e.g., IPADIC).
+    // The dictionary is cached in the specified directory, so subsequent runs are instantaneous.
+    let dict = Dictionary::from_preset_with_download(
+        PresetDictionaryKind::Ipadic,
+        &cache_dir,
+    )?;
+
+    // Create a tokenizer with the loaded dictionary.
+    let tokenizer = Tokenizer::new(dict);
+
+    // A worker holds internal states for tokenization and can be reused.
+    let mut worker = tokenizer.new_worker();
+
+    worker.set_text("本とカレーの街神保町へようこそ。");
+    worker.tokenize();
+
+    // Iterate over tokens.
+    for token in worker.token_iter() {
+        println!("{}\t{}", token.surface(), token.feature());
+    }
+
+    Ok(())
+}
+```
+
+### As a Command-Line Tool
+
+**1. Prepare a Dictionary**
+
+You need a dictionary file (`.dic`) compatible with `vibrato-rkyv`. Use the `compiler` tool to build a dictionary from your source CSV files.
+
+```bash
 # Example of compiling a dictionary
-$ cargo run --release -p compile -- -i path/to/lex.csv ... -o system.dic
+$ cargo run --release -p compiler -- build \
+    --lexicon-in path/to/lex.csv \
+    --matrix-in path/to/matrix.def \
+    --char-in path/to/char.def \
+    --unk-in path/to/unk.def \
+    --sysdic-out system.dic
 ```
 
-### 2. Tokenization
+**2. Tokenize Sentences**
 
-To tokenize sentences using the system dictionary, run the following command. The dictionary is loaded from the file path.
+Pipe your text to the `tokenize` command and specify the dictionary path with `-i`.
 
-```
+```bash
 $ echo '本とカレーの街神保町へようこそ。' | cargo run --release -p tokenize -- -i path/to/system.dic
 ```
 
-The resultant tokens will be output in the Mecab format.
+The result will be printed in MeCab format. To output tokens separated by spaces, use the `-O wakati` option.
 
 ```
 本	名詞,一般,*,*,*,*,本,ホン,ホン
@@ -74,118 +213,41 @@ The resultant tokens will be output in the Mecab format.
 EOS
 ```
 
-If you want to output tokens separated by spaces, specify `-O wakati`.
+## Advanced Usage
 
-```
-$ echo '本とカレーの街神保町へようこそ。' | cargo run --release -p tokenize -- -i ipadic-mecab-2_7_0/system.dic.zst -O wakati
-本 と カレー の 街 神保 町 へ ようこそ 。
-```
+### MeCab-compatible Options
 
-### Notes for Vibrato APIs
-This version of Vibrato is optimized for loading dictionaries from a file path using memory-mapping.
+Vibrato is a reimplementation of the MeCab algorithm, but its default tokenization results may differ. For example, Vibrato treats spaces as tokens by default, whereas MeCab ignores them.
 
-```rust
-use vibrato_rkyv::Dictionary;
+To get results identical to MeCab, use the `-S` (ignore spaces) and `-M` (maximum unknown word length) flags.
 
-// Recommended: Load from path for zero-copy deserialization
-let dict = Dictionary::from_path("path/to/system.dic")?;
-```
-
-If you need to load from a reader (e.g., a compressed stream), all data will be loaded into memory.
-
-```rust
-use std::fs::File;
-use vibrato_rkyv::Dictionary;
-
-// Requires zstd crate crate
-let reader = zstd::Decoder::new(File::open("path/to/system.dic.zst")?)?;
-let dict = Dictionary::read(reader)?;
-```
-
-## Tokenization options
-
-### MeCab-compatible options
-
-Vibrato is a reimplementation of the MeCab algorithm,
-but with the default settings it can produce different tokens from MeCab.
-
-For example, MeCab ignores spaces (more precisely, `SPACE` defined in `char.def`) in tokenization.
-
-```
-$ echo "mens second bag" | mecab
+```bash
+# Get MeCab-compatible output
+$ echo 'mens second bag' | cargo run --release -p tokenize -- -i path/to/system.dic -S -M 24
 mens	名詞,固有名詞,組織,*,*,*,*
 second	名詞,一般,*,*,*,*,*
 bag	名詞,固有名詞,組織,*,*,*,*
 EOS
 ```
+*Note: In rare cases, results may still differ due to tie-breaking in cost calculation.*
 
-However, Vibrato handles such spaces as tokens with the default settings.
+### Using a User Dictionary
 
-```
-$ echo 'mens second bag' | cargo run --release -p tokenize -- -i ipadic-mecab-2_7_0/system.dic.zst
-mens	名詞,固有名詞,組織,*,*,*,*
- 	記号,空白,*,*,*,*,*
-second	名詞,固有名詞,組織,*,*,*,*
- 	記号,空白,*,*,*,*,*
-bag	名詞,固有名詞,組織,*,*,*,*
-EOS
-```
+**IMPORTANT:** In `vibrato-rkyv`, user dictionaries can no longer be specified as a runtime option. They must be compiled into the system dictionary beforehand.
 
-If you want to obtain the same results as MeCab, specify the arguments `-S` and `-M 24`.
+**Option: With the `compiler full-build` command**
 
-```
-$ echo 'mens second bag' | cargo run --release -p tokenize -- -i ipadic-mecab-2_7_0/system.dic.zst -S -M 24
-mens	名詞,固有名詞,組織,*,*,*,*
-second	名詞,一般,*,*,*,*,*
-bag	名詞,固有名詞,組織,*,*,*,*
-EOS
+If you are training a new dictionary, the `full-build` command is the recommended way to include a user dictionary. It handles the entire pipeline: training, generating source files (including the user lexicon), and building the final binary. Use the `--user-lexicon-in` option.
+
+```bash
+$ cargo run --release -p compiler -- full-build \
+    -t path/to/corpus.txt \
+    -l path/to/seed_lex.csv \
+    --user-lexicon-in path/to/my_user_dic.csv \
+    ... # other required arguments
+    -o ./my_dictionary
 ```
 
-`-S` indicates if spaces are ignored.
-`-M` indicates the maximum grouping length for unknown words.
-
-#### Notes
-
-There are corner cases where tokenization results in different outcomes due to cost tiebreakers.
-However, this would be not an essential problem.
-
-### User dictionary
-
-**IMPORTANT:** In this `rkyv`-based version, the user dictionary is **no longer a command-line option** for the `tokenize` command.
-
-Due to the immutable, zero-copy nature of the dictionary, user dictionaries must be **compiled into the system dictionary beforehand**.
-
-To use a user dictionary, you need to create a `DictionaryInner` object that includes the user dictionary and then serialize it. The `compile` command or a custom build script can be used for this purpose.
-
-For example, you can create a combined dictionary using a build script like this:
-
-```rust
-// A simplified example of a build script
-
-use std::fs::File;
-use vibrato_rkyv::{SystemDictionaryBuilder, Dictionary};
-
-// 1. Build a DictionaryInner from the system dictionary components
-let dict_inner = SystemDictionaryBuilder::from_readers(...)?.reset_user_lexicon_from_reader(
-    Some(File::open("user.csv")?)
-)?;
-
-// 2. Write the combined DictionaryInner to a file
-let mut file = File::create("system_with_user.dic")?;
-dict_inner.write(&mut file)?;
-```
-
-Then, use the generated `system_with_user.dic` with the `tokenize` command.
-
-```
-$ echo '本とカレーの街神保町へようこそ。' | cargo run --release -p tokenize -- -i system_with_user.dic
-本とカレーの街	カスタム名詞,ホントカレーノマチ
-神保町	カスタム名詞,ジンボチョウ
-へ	助詞,格助詞,一般,*,*,*,へ,ヘ,エ
-ようこそ	感動詞,ヨーコソ,Welcome,欢迎欢迎,Benvenuto,Willkommen
-。	記号,句点,*,*,*,*,。,。,。
-EOS
-```
 ## More advanced usages
 
 The directory [docs](./docs/) provides descriptions of more advanced usages such as training or benchmarking.

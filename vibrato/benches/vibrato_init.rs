@@ -21,8 +21,7 @@ fn prepare_vibrato_dictionary(
         println!("Vibrato Unidic archive not found. Downloading...");
         fs::create_dir_all(dict_dir)?;
 
-        // let url = "https://github.com/daac-tools/vibrato/releases/download/v0.5.0/unidic-cwj-3_1_1.tar.xz";
-        let url = "https://github.com/daac-tools/vibrato/releases/download/v0.5.0/bccwj-suw+unidic-cwj-3_1_1.tar.xz";
+        let url = "https://github.com/daac-tools/vibrato/releases/download/v0.5.0/unidic-cwj-3_1_1.tar.xz";
         let response = reqwest::blocking::get(url)?.error_for_status()?;
         let tar_xz_bytes = response.bytes()?;
 

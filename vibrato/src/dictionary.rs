@@ -180,9 +180,42 @@ impl DictionaryInner {
         }
     }
 
-    /// Exports the dictionary data.
+    /// Serializes the dictionary data to a writer using the `rkyv` format.
     ///
-    /// The data is serialized with rkyv.
+    /// The output binary from this function is the format that `vibrato-rkyv`'s
+    /// loading methods, such as `Dictionary::from_path`, expect.
+    ///
+    /// # Examples
+    ///
+    /// This example shows how to build a dictionary from CSV data in memory
+    /// and write the serialized binary to a file.
+    ///
+    /// ```no_run
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use std::fs::File;
+    /// use std::io::Cursor;
+    /// use vibrato_rkyv::dictionary::SystemDictionaryBuilder;
+    ///
+    /// // Create a dictionary instance with a builder from some source data.
+    /// let dict = SystemDictionaryBuilder::from_readers(
+    ///     Cursor::new("東京,名詞,地名\n"),
+    ///     Cursor::new("1 1 0\n"),
+    ///     Cursor::new("DEFAULT 0 0 0\n"),
+    ///     Cursor::new("DEFAULT,5,5,-1000\n"),
+    /// )?;
+    ///
+    /// // Serialize the dictionary to a file.
+    /// let mut file = File::create("system.dic")?;
+    /// dict.write(&mut file)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    /// - Writing to the underlying `writer` fails (e.g., an I/O error).
+    /// - The `rkyv` serialization process encounters an error.
     pub fn write<W>(&self, mut wtr: W) -> Result<()>
     where
         W: Write,
@@ -338,6 +371,58 @@ impl Dictionary {
                     }
                 ))
             }
+        }
+    }
+
+    /// Serializes the dictionary data to a writer using the `rkyv` format.
+    ///
+    /// The output binary from this function is the format that `vibrato-rkyv`'s
+    /// loading methods, such as `Dictionary::from_path`, expect.
+    ///
+    /// # Examples
+    ///
+    /// This example shows how to build a dictionary from CSV data in memory
+    /// and write the serialized binary to a file.
+    ///
+    /// ```no_run
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use std::fs::File;
+    /// use std::io::Cursor;
+    /// use vibrato_rkyv::{Dictionary, SystemDictionaryBuilder};
+    ///
+    /// // Create a dictionary instance with a builder from some source data.
+    /// let dict = SystemDictionaryBuilder::from_readers(
+    ///     Cursor::new("東京,名詞,地名\n"),
+    ///     Cursor::new("1 1 0\n"),
+    ///     Cursor::new("DEFAULT 0 0 0\n"),
+    ///     Cursor::new("DEFAULT,5,5,-1000\n"),
+    /// )?;
+    ///
+    /// let dict = Dictionary::from_inner(dict);
+    ///
+    /// // Serialize the dictionary to a file.
+    /// let mut file = File::create("system.dic")?;
+    /// dict.write(&mut file)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    /// - Writing to the underlying `writer` fails (e.g., an I/O error).
+    /// - The `rkyv` serialization process encounters an error.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this method is called on a `Dictionary::Archived` variant.
+    pub fn write<W>(&self, wtr: W) -> Result<()>
+    where
+        W: Write,
+    {
+        match self {
+            Dictionary::Owned(dict) => dict.write(wtr),
+            Dictionary::Archived(_) => unreachable!(),
         }
     }
 

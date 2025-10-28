@@ -16,19 +16,14 @@
 //! let unk_def = "DEFAULT,0,0,100,DEFAULT,名詞,普通名詞,*,*,*,*,*,*,*,*,*,*,*,*";
 //!
 //!
-//! let dict_inner = SystemDictionaryBuilder::from_readers(
+//! let dict = SystemDictionaryBuilder::from_readers(
 //!     lexicon_csv.as_bytes(),
 //!     matrix_def.as_bytes(),
 //!     char_def.as_bytes(),
 //!     unk_def.as_bytes(),
 //! )?;
 //!
-//! let mut buffer = Vec::new();
-//! dict_inner.write(&mut buffer)?;
-//!
-//! let dict = Dictionary::read(buffer.as_slice())?;
-//!
-//! let tokenizer = Tokenizer::new(dict);
+//! let tokenizer = Tokenizer::from_inner(dict);
 //! let mut worker = tokenizer.new_worker();
 //!
 //! worker.reset_sentence("京都東京都");

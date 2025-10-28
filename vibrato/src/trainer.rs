@@ -50,19 +50,14 @@
 //!
 //! // Loads trained model
 //! let char_prop_rdr_again = File::open("src/tests/resources/char.def")?;
-//! let dict_inner = SystemDictionaryBuilder::from_readers(
+//! let dict = SystemDictionaryBuilder::from_readers(
 //!     &*lexicon_trained,
 //!     &*connector_trained,
 //!     char_prop_rdr_again,
 //!     &*unk_handler_trained,
 //! )?;
 //!
-//! let mut buffer = Vec::new();
-//! dict_inner.write(&mut buffer)?;
-//!
-//! let dict = Dictionary::read(buffer.as_slice())?;
-//!
-//! let tokenizer = Tokenizer::new(dict);
+//! let tokenizer = Tokenizer::from_inner(dict);
 //! let mut worker = tokenizer.new_worker();
 //!
 //! worker.reset_sentence("外国人参政権");
