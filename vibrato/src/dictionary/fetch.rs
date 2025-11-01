@@ -1,9 +1,11 @@
 #![cfg(feature = "download")]
-use std::{fs::{self, File}, io, path::{Path, PathBuf}};
+use std::{fs::{self, File}, io::{self, Seek, SeekFrom}, path::{Path, PathBuf}};
 
 use sha2::{Digest, Sha256};
+use walkdir::WalkDir;
+use xz2::read::XzDecoder;
 
-use crate::{dictionary::PresetDictionaryKind, errors::DownloadError};
+use crate::{dictionary::{PresetDictionaryKind, config::FileType}, errors::DownloadError};
 
 pub(crate) fn download_dictionary<P: AsRef<Path>>(kind: PresetDictionaryKind, dest: P) -> Result<PathBuf, DownloadError> {
     let meta = kind.meta();
@@ -24,34 +26,61 @@ pub(crate) fn download_dictionary<P: AsRef<Path>>(kind: PresetDictionaryKind, de
 
     fs::create_dir_all(dest)?;
 
-    let archive_path = dest.join(format!("{}.tar", meta.name));
-    let temp_path = dest.join(format!("{}.tar.part", meta.name));
+    let archive_path = match meta.file_type {
+        FileType::Tar => dest.join(format!("{}.tar", meta.name)),
+        FileType::TarXz => dest.join(format!("{}.tar.xz", meta.name)),
+    };
 
     let mut response = reqwest::blocking::get(meta.download_url)?;
     if !response.status().is_success() {
         return Err(DownloadError::HttpStatus(response.status()));
     }
 
-    let mut temp_file = File::create(&temp_path)?;
+    let mut temp_file = tempfile::NamedTempFile::new_in(dest)?;
     response.copy_to(&mut temp_file)?;
 
+    temp_file.seek(SeekFrom::Start(0))?;
     let calculated_hash = {
-        let mut f = File::open(&temp_path)?;
         let mut hasher = Sha256::new();
-        io::copy(&mut f, &mut hasher)?;
+        io::copy(&mut temp_file, &mut hasher)?;
         hex::encode(hasher.finalize())
     };
 
     if calculated_hash != meta.sha256_hash_archive {
-        fs::remove_file(&temp_path)?;
         return Err(DownloadError::HashMismatch);
     }
 
-    fs::rename(&temp_path, &archive_path)?;
+    let mut archive_file = temp_file.persist(&archive_path)?;
+    archive_file.seek(SeekFrom::Start(0))?;
 
-    let archive_file = File::open(&archive_path)?;
-    let mut archive = tar::Archive::new(archive_file);
+    let mut archive: tar::Archive<Box<dyn io::Read>> = match meta.file_type {
+        FileType::Tar => tar::Archive::new(Box::new(archive_file)),
+        FileType::TarXz => tar::Archive::new(Box::new(XzDecoder::new(archive_file))),
+    };
+
     archive.unpack(dest)?;
+
+    let found_path = if dict_path.exists() {
+        dict_path.clone()
+    } else {
+        WalkDir::new(dest)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .find(|e| e.file_name() == EXTRACTED_DICT_FILENAME)
+            .map(|e| e.into_path())
+            .ok_or(DownloadError::ExtractedFileNotFound)?
+    };
+
+    if found_path != dict_path {
+        fs::rename(&found_path, &dict_path)?;
+    }
+
+    for entry in fs::read_dir(dest)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            fs::remove_dir_all(path)?;
+        }
+    }
 
     fs::remove_file(&archive_path)?;
 

@@ -18,7 +18,7 @@ fn benchmark_preset(
 
     let dict = Arc::new(
         Dictionary::from_preset_with_download(kind, cache_dir)
-            .unwrap_or_else(|e| panic!("Failed to load {} preset: {}", kind.name(), e)),
+            .unwrap_or_else(|e| panic!("Failed to load {}: {}", kind.name(), e)),
     );
     println!("{} ready.", kind.name());
 
@@ -75,6 +75,10 @@ fn bench_all_presets(c: &mut Criterion) {
 
     benchmark_preset(c, PresetDictionaryKind::Ipadic, &cache_dir, lines);
     benchmark_preset(c, PresetDictionaryKind::Unidic, &cache_dir, lines);
+    benchmark_preset(c, PresetDictionaryKind::BccwjUnidic, &cache_dir, lines);
+    benchmark_preset(c, PresetDictionaryKind::BccwjUnidicCompactDual, &cache_dir, lines);
+    benchmark_preset(c, PresetDictionaryKind::BccwjUnidicExtractedCompact, &cache_dir, lines);
+    benchmark_preset(c, PresetDictionaryKind::BccwjUnidicExtractedCompactDual, &cache_dir, lines);
 }
 
 criterion_group!(benches, bench_all_presets);

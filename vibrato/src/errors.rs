@@ -174,10 +174,14 @@ pub enum DownloadError {
     Io(#[from] std::io::Error),
     #[error("Downloaded file checksum mismatch. It may be corrupted.")]
     HashMismatch,
+    #[error("The extracted file does not exist.")]
+    ExtractedFileNotFound,
     #[error("Extracted dictionary checksum mismatch. The extracted file may be corrupted.")]
     ExtractedHashMismatch,
     #[error("HTTP error: {0}")]
     HttpStatus(reqwest::StatusCode),
+    #[error(transparent)]
+    PathPersist(#[from] tempfile::PersistError),
 }
 
 impl From<std::num::TryFromIntError> for VibratoError {

@@ -601,7 +601,7 @@ impl Dictionary {
     /// # Ok(())
     /// # }
     /// ```
-    #[inline]
+    #[inline(always)]
     pub fn from_zstd_with_options<P: AsRef<std::path::Path>>(
         path: P,
         cache_dir: P,
@@ -733,19 +733,19 @@ impl Dictionary {
         Self::from_path(decompressed_path)
     }
 
-    /// Creates a `Dictionary` instance from a reader of a legacy `bincode`-based dictionary.
+    /// Creates a [`Dictionary`] instance from a reader for a legacy
+    /// `bincode`-based dictionary.
     ///
-    /// This function is intended for tools like the `compiler` to convert old dictionary
-    /// formats. It loads the entire dictionary into memory.
+    /// This function is intended for internal tools such as the `compiler` to
+    /// convert old dictionary formats. It loads the entire dictionary into memory.
     ///
     /// This function is only available when the `legacy` feature is enabled.
     ///
     /// # Safety
     ///
-    /// The caller must ensure that the provided reader points to a valid, uncompressed,
-    /// `bincode`-serialized dictionary file whose `DictionaryInner` struct has the exact
-    /// same memory layout as this crate's `legacy::dictionary::DictionaryInner`.
-    /// Failure to do so will result in undefined behavior.
+    /// This function is `unsafe` because it uses [`std::mem::transmute`] to cast
+    /// the dictionary structure deserialized with `bincode`.
+    /// It is currently safe as this fork maintains an identical memory layout.
     #[cfg(feature = "legacy")]
     pub unsafe fn from_legacy_reader<R: std::io::Read>(reader: R) -> Result<Self> {
         let legacy_dict_inner = crate::legacy::Dictionary::read(reader)?.data;

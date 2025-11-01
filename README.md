@@ -57,15 +57,13 @@ The following summarizes key differences from the original implementation.
 
 If you are migrating from the original `daac-tools/vibrato`, please note the following key changes:
 
-- **Legacy Dictionary Support (with legacy feature):** `vibrato-rkyv` is designed for performance with its native `rkyv`-based dictionary format. However, to provide flexibility and allow users to leverage a wide range of dictionary assets, it also offers support for the `bincode`-based format used by the original `vibrato` when the `legacy` feature is enabled.
-
-This enables the use of valuable, pre-existing dictionaries that may only be available in the `bincode` format, such as those trained on proprietary corpora (e.g., BCCWJ).
-
+- **Legacy Dictionary Support (with legacy feature):** `vibrato-rkyv` is designed for performance with its native `rkyv`-based dictionary format. However, to provide flexibility and allow users to leverage a wide range of dictionary assets, it also offers support for the `bincode`-based format used by the original `vibrato` when the `legacy` feature is enabled.  
+This enables the use of valuable, pre-existing dictionaries that may only be available in the `bincode` format, such as those trained on proprietary corpora (e.g., BCCWJ).  
 The library handles different formats:
-* `Dictionary::from_path()`: Transparently loads both uncompressed `rkyv` and `bincode` format dictionaries. It automatically detects the format based on the file's content.
-* `Dictionary::from_zstd()`: When given a Zstandard-compressed dictionary, it provides sophisticated, format-aware caching:
-  * If the dictionary is in the `rkyv` format, it is decompressed and cached for near-instant, memory-mapped access on subsequent loads.
-  * If the dictionary is in the `bincode` format, it is loaded directly into memory for immediate use. In the background, a process is started to convert it to the `rkyv` format and create a separate cache. This ensures that while the first load is operational, all future loads benefit from the high-speed `rkyv` cache.
+  - `Dictionary::from_path()`: Transparently loads both uncompressed `rkyv` and `bincode` format dictionaries. It automatically detects the format based on the file's content.
+  - `Dictionary::from_zstd()`: When given a Zstandard-compressed dictionary, it provides sophisticated, format-aware caching:
+    - If the dictionary is in the `rkyv` format, it is decompressed and cached for near-instant, memory-mapped access on subsequent loads.
+    - If the dictionary is in the `bincode` format, it is loaded directly into memory for immediate use. In the background, a process is started to convert it to the `rkyv` format and create a separate cache. This ensures that while the first load is operational, all future loads benefit from the high-speed `rkyv` cache.
 
 This eliminates the need for manual conversion for most use cases. For users who prefer to convert dictionaries, the compiler transmute command is also available (see [Toolchain](#additional-improvements) below).
 
