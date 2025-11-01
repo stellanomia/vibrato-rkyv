@@ -9,10 +9,13 @@ pub(crate) mod mapper;
 pub(crate) mod unknown;
 pub(crate) mod word_idx;
 
-use std::fs::{self, File};
+use std::fs::{self, File, Metadata};
 use std::io::{self, ErrorKind, Read, Write};
 use std::ops::Deref;
+
+#[cfg(feature = "download")]
 use std::path::Path;
+use std::sync::Arc;
 
 use memmap2::Mmap;
 use rkyv::Archived;
@@ -104,7 +107,7 @@ enum DictBuffer {
 /// A read-only dictionary for tokenization, loaded via zero-copy deserialization.
 pub enum Dictionary {
     Archived(ArchivedDictionary),
-    Owned(Box<DictionaryInner>),
+    Owned(Arc<DictionaryInner>),
 }
 
 pub struct ArchivedDictionary {
@@ -283,95 +286,7 @@ impl DictionaryInner {
 impl Dictionary {
     /// Creates a dictionary from `DictionaryInner`.
     pub fn from_inner(dict: DictionaryInner) -> Self {
-        Self::Owned(Box::new(dict))
-    }
-
-    /// Creates a dictionary from a file path using memory-mapping for fast loading.
-    ///
-    /// This function maps the dictionary file into memory and provides zero-copy access to it,
-    /// which is extremely fast and memory-efficient.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - A path to the compiled dictionary file.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file cannot be opened, is corrupted,
-    /// or was created with an incompatible version of vibrato.
-    pub fn from_path<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
-        let mut file = File::open(path.as_ref()).map_err(|e| {
-            VibratoError::invalid_argument("path", format!("Failed to open dictionary file: {}", e))
-        })?;
-        let mut magic_buf = [0u8; MODEL_MAGIC_LEN];
-        file.read_exact(&mut magic_buf)?;
-
-        if magic_buf.starts_with(LEGACY_MODEL_MAGIC_PREFIX) {
-            return Err(VibratoError::invalid_argument(
-                "path",
-                "This appears to be a legacy bincode-based dictionary file. Please use a dictionary compiled for the rkyv version of vibrato.",
-            ));
-        } else if !magic_buf.starts_with(MODEL_MAGIC) {
-            return Err(VibratoError::invalid_argument(
-                "path",
-                "The magic number of the input model mismatches.",
-            ));
-        }
-
-        let mmap = unsafe { Mmap::map(&file)? };
-
-        let Some(data_bytes) = &mmap.get(DATA_START..) else {
-            return Err(VibratoError::invalid_argument(
-                "path",
-                "Dictionary file too small or corrupted.",
-            ));
-        };
-
-        #[cfg(not(debug_assertions))]
-        {
-            use rkyv::access_unchecked;
-            let archived = unsafe { access_unchecked::<ArchivedDictionaryInner>(data_bytes) };
-            let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
-            return Ok(
-                Self::Archived(
-                    ArchivedDictionary {
-                        _buffer: DictBuffer::Mmap(mmap),
-                        data,
-                    }
-            ));
-        }
-
-        #[allow(unreachable_code)]
-        match access::<ArchivedDictionaryInner, Error>(data_bytes) {
-            Ok(archived) => {
-                let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
-                Ok(Self::Archived(
-                    ArchivedDictionary {
-                        _buffer: DictBuffer::Mmap(mmap),
-                        data,
-                    }
-                ))
-            }
-            Err(_) => {
-                let mut aligned_bytes = AlignedVec::with_capacity(data_bytes.len());
-                aligned_bytes.extend_from_slice(data_bytes);
-
-                let archived = access::<ArchivedDictionaryInner, Error>(&aligned_bytes).map_err(|e| {
-                    VibratoError::invalid_state(
-                        "rkyv validation failed. The dictionary file may be corrupted or incompatible.".to_string(),
-                        e.to_string(),
-                    )
-                })?;
-
-                let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
-                Ok(Self::Archived(
-                    ArchivedDictionary {
-                        _buffer: DictBuffer::Aligned(aligned_bytes),
-                        data,
-                    }
-                ))
-            }
-        }
+        Self::Owned(Arc::new(dict))
     }
 
     /// Serializes the dictionary data to a writer using the `rkyv` format.
@@ -483,66 +398,256 @@ impl Dictionary {
         )
     }
 
+    /// Creates a dictionary from a file path using memory-mapping for fast loading.
+    ///
+    /// This function maps the dictionary file into memory and provides zero-copy access to it,
+    /// which is extremely fast and memory-efficient.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - A path to the compiled dictionary file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be opened, is corrupted,
+    /// or was created with an incompatible version of vibrato.
+    pub fn from_path<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
+        let path = path.as_ref();
+        let mut file = File::open(path).map_err(|e| {
+            VibratoError::invalid_argument("path", format!("Failed to open dictionary file: {}", e))
+        })?;
+        let mut magic = [0u8; MODEL_MAGIC_LEN];
+        file.read_exact(&mut magic)?;
+
+        if magic.starts_with(LEGACY_MODEL_MAGIC_PREFIX) {
+            #[cfg(not(feature = "legacy"))]
+            return Err(VibratoError::invalid_argument(
+                "path",
+                "This appears to be a legacy bincode-based dictionary file. Please use a dictionary compiled for the rkyv version of vibrato.",
+            ));
+
+            #[cfg(feature = "legacy")]
+            {
+                use std::io::Seek;
+
+                file.seek(io::SeekFrom::Start(0))?;
+
+                let dict = vibrato::Dictionary::read(file)?.data;
+
+                let dict = unsafe {
+                    use std::mem::transmute;
+
+                    Arc::new(transmute::<vibrato::dictionary::DictionaryInner, DictionaryInner>(dict))
+                };
+
+                return Ok(Self::Owned(dict));
+            }
+        } else if !magic.starts_with(MODEL_MAGIC) {
+            return Err(VibratoError::invalid_argument(
+                "path",
+                "The magic number of the input model mismatches.",
+            ));
+        }
+
+        let mmap = unsafe { Mmap::map(&file)? };
+
+        let Some(data_bytes) = &mmap.get(DATA_START..) else {
+            return Err(VibratoError::invalid_argument(
+                "path",
+                "Dictionary file too small or corrupted.",
+            ));
+        };
+
+        #[cfg(not(debug_assertions))]
+        {
+            use rkyv::access_unchecked;
+            let archived = unsafe { access_unchecked::<ArchivedDictionaryInner>(data_bytes) };
+            let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
+            return Ok(
+                Self::Archived(
+                    ArchivedDictionary {
+                        _buffer: DictBuffer::Mmap(mmap),
+                        data,
+                    }
+            ));
+        }
+
+        #[allow(unreachable_code)]
+        match access::<ArchivedDictionaryInner, Error>(data_bytes) {
+            Ok(archived) => {
+                let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
+                Ok(Self::Archived(
+                    ArchivedDictionary {
+                        _buffer: DictBuffer::Mmap(mmap),
+                        data,
+                    }
+                ))
+            }
+            Err(_) => {
+                let mut aligned_bytes = AlignedVec::with_capacity(data_bytes.len());
+                aligned_bytes.extend_from_slice(data_bytes);
+
+                let archived = access::<ArchivedDictionaryInner, Error>(&aligned_bytes).map_err(|e| {
+                    VibratoError::invalid_state(
+                        "rkyv validation failed. The dictionary file may be corrupted or incompatible.".to_string(),
+                        e.to_string(),
+                    )
+                })?;
+
+                let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
+                Ok(Self::Archived(
+                    ArchivedDictionary {
+                        _buffer: DictBuffer::Aligned(aligned_bytes),
+                        data,
+                    }
+                ))
+            }
+        }
+    }
+
     /// Loads a dictionary from a Zstandard-compressed file, with automatic caching.
     ///
-    /// On the first run, this function decompresses the dictionary to a file in a
-    /// `decompressed` subdirectory next to the compressed file. Subsequent runs
-    /// will load the decompressed cache directly using the highly efficient `from_path`,
-    /// achieving near-instant startup times.
+    /// This is the recommended way to load a dictionary for most use cases.
     ///
-    /// The cache is automatically invalidated and regenerated if the original compressed
-    /// file is modified.
+    /// On the first run, this function decompresses the dictionary to a `decompressed`
+    /// subdirectory next to the compressed file. Subsequent runs will load the
+    /// decompressed cache directly using highly efficient memory mapping, achieving
+    /// near-instant startup times.
+    ///
+    /// The cache is automatically invalidated and regenerated if the original
+    /// compressed file is modified.
+    ///
+    /// For more control over caching behavior, see [`from_zstd_with_options`].
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - A path to the Zstandard-compressed dictionary file (e.g., `system.dic.zst`).
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    /// - The `path` does not exist or is a directory.
+    /// - The file cannot be opened due to permission errors.
+    /// - The file is not a valid Zstandard-compressed stream.
+    /// - The cache directory cannot be created, and fallback to a global cache also fails.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use vibrato_rkyv::{Dictionary, errors::Result};
+    /// # fn main() -> Result<()> {
+    /// let dict = Dictionary::from_zstd("path/to/system.dic.zst")?;
+    /// // The dictionary is now ready to use.
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn from_zstd<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
+        let path = path.as_ref();
+
+        let cache_dir = path
+            .parent()
+            // `from_zstd_with_options` checks whether path is a directory, so minimal options suffice.
+            .ok_or(VibratoError::PathIsDirectory(path.to_path_buf()))?
+            .join("decompressed");
+
+        Self::from_zstd_with_options(
+            path,
+            &cache_dir,
+            true,
+            #[cfg(feature = "legacy")]
+            false,
+        )
+    }
+
+    /// Loads a dictionary from a Zstandard-compressed file with configurable caching options.
+    ///
+    /// This is an advanced version of [`from_zstd`] that allows for fine-grained control
+    /// over the caching mechanism. It is useful in environments with specific directory
+    /// structures or restrictive file system permissions.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - A path to the Zstandard-compressed dictionary file.
+    /// * `cache_dir` - The directory where the decompressed dictionary cache will be stored.
+    /// * `allow_fallback` - If `true`, the function will attempt to use a global cache
+    ///   directory (e.g., `~/.cache/vibrato-rkyv`) as a fallback if creating `cache_dir`
+    ///   fails with a permission error.
+    #[cfg_attr(feature = "legacy", doc = r" * `await_caching` - (legacy feature only) If `true` and a legacy dictionary is provided,
+    the function will block until the conversion to the new format and caching are complete.
+    If `false` (the default for `from_zstd`), it returns immediately with the legacy dictionary loaded in memory,
+    while the conversion and caching process runs in a background thread. This is useful for tests or cache pre-warming scripts.")]
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error under the same conditions as `from_zstd`, but
+    /// the caching behavior depends on the `allow_fallback` flag.
+    #[cfg_attr(feature = "legacy", doc = r" - (legacy feature only) The background caching thread panics when `await_caching` is `true`.")]
+    ///
+    /// # Examples
+    ///
+    /// ### Specifying a custom cache directory
+    ///
+    /// ```no_run
+    /// # use vibrato_rkyv::{Dictionary, errors::Result};
+    /// # fn main() -> Result<()> {
+    /// let dict = Dictionary::from_zstd_with_options(
+    ///     "path/to/system.dic.zst",
+    ///     "/tmp/my_app_cache",
+    ///     false, // Disable fallback to global cache
+    #[cfg_attr(feature = "legacy", doc = r"true, // Wait for background cache generation to complete")]
+    /// )?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[inline]
+    pub fn from_zstd_with_options<P: AsRef<std::path::Path>>(
+        path: P,
+        cache_dir: P,
+        allow_fallback: bool,
+        #[cfg(feature = "legacy")]
+        wait_for_cache: bool,
+    ) -> Result<Self> {
         let zstd_path = path.as_ref();
-        let mut hasher = Sha256::new();
+        let zstd_file = File::open(zstd_path)?;
+        let meta = zstd_file.metadata()?;
 
-        let file = File::open(zstd_path)?;
-        let meta = file.metadata()?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            hasher.update(meta.dev().to_le_bytes());
-            hasher.update(meta.ino().to_le_bytes());
-            hasher.update(meta.size().to_le_bytes());
-            hasher.update(meta.mtime().to_le_bytes());
-            hasher.update(meta.mtime_nsec().to_le_bytes());
-        }
+        let dict_hash = compute_file_hash(&meta);
+        let decompressed_dir = cache_dir.as_ref().to_path_buf();
 
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::MetadataExt;
-            hasher.update(meta.file_size().to_le_bytes());
-            hasher.update(meta.last_write_time().to_le_bytes());
-        }
-
-        let dict_hash = hex::encode(hasher.finalize());
-        drop(file);
-
-        let mut decompressed_dir = zstd_path.parent().unwrap().join("decompressed");
+        // `let file = File::open(zstd_path)?` is already guarantees that zstd_path is a File.
         let zstd_file_name_os_str = zstd_path.file_name().unwrap();
         let zstd_file_name = zstd_file_name_os_str.to_string_lossy();
+
         let zstd_hash_path = decompressed_dir.join(format!("{}.sha256", zstd_file_name));
         let decompressed_path = decompressed_dir.join(
             zstd_path.file_stem().unwrap_or(zstd_file_name_os_str)
         );
 
-        if zstd_hash_path.exists()
-            && let Ok(compressed_dict_hash) = fs::read_to_string(&zstd_hash_path)
+        if let Ok(compressed_dict_hash) = fs::read_to_string(&zstd_hash_path)
             && compressed_dict_hash.trim() == dict_hash {
                 return Self::from_path(decompressed_path);
             }
 
+        #[cfg(feature = "legacy")]
+        let transmuted_path = decompressed_path.with_added_extension("rkyv");
+        #[cfg(feature = "legacy")]
+        let rkyv_hash_path = decompressed_dir.join(format!("{}.rkyv.sha256", zstd_file_name));
+
+        #[cfg(feature = "legacy")]
+        if let Ok(compressed_dict_hash) = fs::read_to_string(&rkyv_hash_path)
+            && compressed_dict_hash.trim() == dict_hash {
+                return Self::from_path(transmuted_path);
+            }
+
         if let Err(e) = fs::create_dir_all(&decompressed_dir) {
-            if e.kind() == ErrorKind::PermissionDenied && let Some(mut path) = dirs::cache_dir() {
-                path.push("vibrato-rkyv/decompressed");
-                decompressed_dir = path;
+            if e.kind() == ErrorKind::PermissionDenied && allow_fallback && let Some(mut decompressed_dir) = dirs::cache_dir() {
+                decompressed_dir.push("vibrato-rkyv/decompressed");
                 let zstd_hash_path = decompressed_dir.join(format!("{}.sha256", zstd_file_name));
                 let decompressed_path = decompressed_dir.join(
-                    Path::new(&zstd_file_name.to_string()).with_extension("")
+                    zstd_path.file_stem().unwrap_or(zstd_file_name_os_str)
                 );
 
-                if zstd_hash_path.exists()
-                    && let Ok(compressed_dict_hash) = fs::read_to_string(&zstd_hash_path)
+                if let Ok(compressed_dict_hash) = fs::read_to_string(&zstd_hash_path)
                     && compressed_dict_hash.trim() == dict_hash {
                         return Self::from_path(decompressed_path);
                     }
@@ -551,25 +656,79 @@ impl Dictionary {
             }
         }
 
-        let temp_path = decompressed_dir.join(format!("{}.tmp.{}", zstd_file_name, std::process::id()));
+        let mut temp_file = tempfile::NamedTempFile::new_in(&decompressed_dir)?;
 
         {
-            let compressed_file = File::open(zstd_path)?;
-            let mut temp_file = File::create(&temp_path)?;
-            let mut decoder = zstd::Decoder::new(compressed_file)?;
+            let mut decoder = zstd::Decoder::new(zstd_file)?;
 
             io::copy(&mut decoder, &mut temp_file)?;
-            temp_file.sync_all()?;
+            temp_file.as_file().sync_all()?;
         }
 
-        fs::rename(&temp_path, &decompressed_path)?;
+        let _ = fs::remove_file(&decompressed_path);
+
+        let mut _dict_file = temp_file.persist(&decompressed_path)?;
+
+
+        #[cfg(feature = "legacy")]
+        'l: {
+            use std::{io::{Seek, SeekFrom}, thread};
+
+            let mut dict_file = _dict_file;
+            dict_file.seek(SeekFrom::Start(0))?;
+
+            let mut magic = [0; MODEL_MAGIC_LEN];
+            dict_file.read_exact(&mut magic)?;
+
+            if !magic.starts_with(LEGACY_MODEL_MAGIC_PREFIX) {
+                break 'l;
+            }
+
+            let dict = vibrato::Dictionary::read(
+                zstd::Decoder::new(File::open(zstd_path)?)?
+            )?.data;
+
+            let dict = unsafe {
+                use std::mem::transmute;
+
+                Arc::new(transmute::<vibrato::dictionary::DictionaryInner, DictionaryInner>(dict))
+            };
+
+
+            let dict_for_cache = Arc::clone(&dict);
+            let handle = thread::spawn(move || -> Result<()> {
+                let mut temp_file = tempfile::NamedTempFile::new_in(&decompressed_dir)?;
+
+                dict_for_cache.write(&mut temp_file)?;
+
+                temp_file.persist(&transmuted_path)?;
+
+                fs::write(&rkyv_hash_path, dict_hash)?;
+
+                Ok(())
+            });
+
+            if wait_for_cache {
+                handle.join().map_err(|e| {
+                    let panic_msg = if let Some(s) = e.downcast_ref::<&'static str>() {
+                        s.to_string()
+                    } else if let Some(s) = e.downcast_ref::<String>() {
+                        s.clone()
+                    } else {
+                        "Unknown panic".to_string()
+                    };
+                    VibratoError::ThreadPanic(panic_msg)
+                })??;
+            }
+
+            return Ok(Self::Owned(dict));
+        }
 
         fs::write(&zstd_hash_path, dict_hash)?;
 
         Self::from_path(decompressed_path)
     }
 
-    #[cfg(feature = "download")]
     /// Creates a `Dictionary` instance from a preset, downloading it if not present.
     ///
     /// This is the most convenient way to get started with a pre-compiled dictionary.
@@ -610,13 +769,13 @@ impl Dictionary {
     ///
     /// let mut tokenizer = Tokenizer::new(dictionary);
     /// ```
+    #[cfg(feature = "download")]
     pub fn from_preset_with_download<P: AsRef<Path>>(kind: PresetDictionaryKind, dir: P) -> Result<Self> {
         let dict_path = fetch::download_dictionary(kind, dir)?;
 
         Self::from_zstd(dict_path)
     }
 
-    #[cfg(feature = "download")]
     /// Downloads a preset dictionary file and returns the path to it.
     ///
     /// Once downloaded, the dictionary can be loaded using [`Dictionary::from_zstd`].
@@ -653,9 +812,33 @@ impl Dictionary {
     ///
     /// let dictionary = Dictionary::from_zstd(dict_path).unwrap();
     /// ```
+    #[cfg(feature = "download")]
     pub fn download_dictionary<P: AsRef<Path>>(kind: PresetDictionaryKind, dir: P) -> Result<std::path::PathBuf> {
         Ok(fetch::download_dictionary(kind, dir)?)
     }
+}
+
+#[inline(always)]
+fn compute_file_hash(meta: &Metadata) -> String {
+    let mut hasher = Sha256::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        hasher.update(meta.dev().to_le_bytes());
+        hasher.update(meta.ino().to_le_bytes());
+        hasher.update(meta.size().to_le_bytes());
+        hasher.update(meta.mtime().to_le_bytes());
+        hasher.update(meta.mtime_nsec().to_le_bytes());
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        hasher.update(meta.file_size().to_le_bytes());
+        hasher.update(meta.last_write_time().to_le_bytes());
+    }
+
+    hex::encode(hasher.finalize())
 }
 
 impl ArchivedDictionaryInner {

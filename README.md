@@ -14,6 +14,11 @@ Vibrato is a fast implementation of tokenization (or morphological analysis) bas
 
 The benchmark results below compare loading from both uncompressed and `zstd`-compressed files, demonstrating the performance difference.
 
+CPU: Intel Core i7-14700
+OS: WSL2 (Ubuntu 24.04)
+Dictionary: UniDic-cwj v3.1.1 (approx. 700MB uncompressed dictionary binary)
+Source: The benchmark code is available in the [benches](./vibrato/benches) directory.
+
 ### From Uncompressed File (`.dic`)
 
 | Condition | Original `vibrato` (Read from stream) | `vibrato-rkyv` (Memory-mapped) | Speedup |
@@ -29,8 +34,6 @@ The benchmark results below compare loading from both uncompressed and `zstd`-co
 | Subsequent Runs (Cache-hit) | ~4.5 s | ~6.5 μs | ~700,000x |
 
 <small>*`vibrato-rkyv` automatically decompresses and caches the dictionary on the first run, using the memory-mapped cache for subsequent loads.*</small>
-<br>
-<small>*Benchmarks were conducted with UniDic-cwj v3.1.1 (approx. 700MB uncompressed dictionary binary).*</small>
 
 To take advantage of this performance, use the `Dictionary::from_path` or `Dictionary::from_zstd` methods:
 
@@ -54,12 +57,22 @@ The following summarizes key differences from the original implementation.
 
 If you are migrating from the original `daac-tools/vibrato`, please note the following key changes:
 
-1. **Incompatible Dictionary Format:** Dictionaries must be (re)compiled using the `vibrato-rkyv` toolchain. Due to the switch to the `rkyv` format, dictionaries from the original `vibrato` are **not compatible**. A `transmute` command is provided to convert legacy `bincode`-formatted dictionaries (see [Toolchain](#unified-toolchain) below).
+- **Legacy Dictionary Support (with legacy feature):** `vibrato-rkyv` is designed for performance with its native `rkyv`-based dictionary format. However, to provide flexibility and allow users to leverage a wide range of dictionary assets, it also offers support for the `bincode`-based format used by the original `vibrato` when the `legacy` feature is enabled.
 
-2. **User Dictionaries Must Be Pre-compiled:** The `--user-dic` runtime option has been removed. User dictionaries must now be compiled into the system dictionary beforehand. This design choice supports the zero-copy, immutable model of `rkyv`.  
+This enables the use of valuable, pre-existing dictionaries that may only be available in the `bincode` format, such as those trained on proprietary corpora (e.g., BCCWJ).
+
+The library handles different formats:
+* `Dictionary::from_path()`: Transparently loads both uncompressed `rkyv` and `bincode` format dictionaries. It automatically detects the format based on the file's content.
+* `Dictionary::from_zstd()`: When given a Zstandard-compressed dictionary, it provides sophisticated, format-aware caching:
+  * If the dictionary is in the `rkyv` format, it is decompressed and cached for near-instant, memory-mapped access on subsequent loads.
+  * If the dictionary is in the `bincode` format, it is loaded directly into memory for immediate use. In the background, a process is started to convert it to the `rkyv` format and create a separate cache. This ensures that while the first load is operational, all future loads benefit from the high-speed `rkyv` cache.
+
+This eliminates the need for manual conversion for most use cases. For users who prefer to convert dictionaries, the compiler transmute command is also available (see [Toolchain](#additional-improvements) below).
+
+- **User Dictionaries Must Be Pre-compiled:** The `--user-dic` runtime option has been removed. User dictionaries must now be compiled into the system dictionary beforehand. This design choice supports the zero-copy, immutable model of `rkyv`.  
   However, this does not mean dictionaries are purely static. While you cannot modify a dictionary *after* it has been loaded, you can dynamically construct a dictionary in memory (e.g., using `SystemDictionaryBuilder`) and create a `Tokenizer` from it using `Dictionary::from_inner()`. This is useful for scenarios where dictionary contents are generated at runtime before tokenization begins.
 
-3. **New Recommended Loading APIs:** For maximum performance, use `Dictionary::from_path()` for uncompressed files and `Dictionary::from_zstd()` for `zstd`-compressed files. These methods leverage memory-mapping and caching for near-instantaneous loading. While `Dictionary::read()` is still available for generic readers, it is less efficient.
+- **New Recommended Loading APIs:** For maximum performance, use `Dictionary::from_path()` for uncompressed files and `Dictionary::from_zstd()` for `zstd`-compressed files. These methods leverage memory-mapping and caching for near-instantaneous loading. While `Dictionary::read()` is still available for generic readers, it is less efficient.
 
 ```rust
 use vibrato_rkyv::Dictionary;
@@ -88,7 +101,7 @@ Beyond the core change to `rkyv` for faster loading, `vibrato-rkyv` includes sev
 * **Built-in Dictionary Downloader and Manager**  
   Getting started is now easier than ever. You can download and set up pre-compiled preset dictionaries (e.g., IPADIC, UNIDIC) with a single function call.
   * `Dictionary::from_preset_with_download()`: Handles downloading, checksum verification, and caching automatically.
-  * `Dictionary::from_zstd()`: Intelligently manages `zstd`-compressed dictionaries by decompressing them to a local cache on the first run and using the fast memory-mapped version on all subsequent loads.
+  * `Dictionary::from_zstd()`: Intelligently manages `zstd`-compressed dictionaries by decompressing them to a local cache on the first run. It also automatically detects and converts legacy `bincode`-formatted dictionaries (when the legacy feature is enabled), caching them in the modern format in the background for future fast loads.
 
 ## Features
 

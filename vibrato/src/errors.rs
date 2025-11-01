@@ -1,7 +1,7 @@
 //! Definition of errors.
 
 use std::error::Error;
-use std::fmt;
+use std::fmt::{self, Debug};
 
 /// A specialized Result type for Vibrato.
 pub type Result<T, E = VibratoError> = std::result::Result<T, E>;
@@ -10,44 +10,69 @@ pub type Result<T, E = VibratoError> = std::result::Result<T, E>;
 #[derive(Debug, thiserror::Error)]
 pub enum VibratoError {
     /// The error variant for [`InvalidArgumentError`].
+    #[error(transparent)]
     InvalidArgument(InvalidArgumentError),
 
     /// The error variant for [`InvalidFormatError`].
+    #[error(transparent)]
     InvalidFormat(InvalidFormatError),
 
     /// The error variant for [`InvalidStateError`].
+    #[error(transparent)]
     InvalidState(InvalidStateError),
 
     /// The error variant for [`TryFromIntError`](std::num::TryFromIntError).
+    #[error(transparent)]
     TryFromInt(std::num::TryFromIntError),
 
     /// The error variant for [`ParseFloatError`](std::num::ParseFloatError).
+    #[error(transparent)]
     ParseFloat(std::num::ParseFloatError),
 
     /// The error variant for [`ParseIntError`](std::num::ParseIntError).
+    #[error(transparent)]
     ParseInt(std::num::ParseIntError),
 
     /// The error variant for [`std::io::Error`].
+    #[error(transparent)]
     StdIo(std::io::Error),
 
     /// The error variant for [`std::str::Utf8Error`].
+    #[error(transparent)]
     Utf8(std::str::Utf8Error),
+
+    #[error("The path '{0}' is a directory, but a file was expected.")]
+    PathIsDirectory(std::path::PathBuf),
+
+    #[error("Background thread panicked: {0}")]
+    ThreadPanic(String),
 
     /// The error variant for [`RucrfError`](rucrf_rkyv::errors::RucrfError).
     #[cfg(feature = "train")]
+    #[error(transparent)]
     Crf(rucrf_rkyv::errors::RucrfError),
 
-    /// The error variant for [`DownloadError`](crate::dictionary::fetch::DownloadError).
+    /// The error variant for [`DownloadError`].
     #[cfg(feature = "download")]
+    #[error(transparent)]
     Download(#[from] DownloadError),
+
+    /// The error variant for [`VibratoError`](vibrato::errors::VibratoError).
+    #[cfg(feature = "legacy")]
+    #[error(transparent)]
+    Legacy(#[from] vibrato::errors::VibratoError),
 
     /// The error variant for [`std::io::Error`](std::io::Error).
     #[error(transparent)]
     IoError(#[from] std::io::Error),
 
-    #[error(transparent)]
     /// The error variant for [`rkyv::rancor::Error`](rkyv::rancor::Error).
+    #[error(transparent)]
     RkyvError(#[from] rkyv::rancor::Error),
+
+    /// The error variant for [`tempfile::PathPersistError`](tempfile::PathPersistError).
+    #[error(transparent)]
+    PathPersist(#[from] tempfile::PersistError),
 }
 
 impl VibratoError {
@@ -80,29 +105,6 @@ impl VibratoError {
             msg: msg.into(),
             cause: cause.into(),
         })
-    }
-}
-
-impl fmt::Display for VibratoError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::InvalidArgument(e) => e.fmt(f),
-            Self::InvalidFormat(e) => e.fmt(f),
-            Self::InvalidState(e) => e.fmt(f),
-            Self::TryFromInt(e) => e.fmt(f),
-            Self::ParseFloat(e) => e.fmt(f),
-            Self::ParseInt(e) => e.fmt(f),
-            Self::StdIo(e) => e.fmt(f),
-            Self::Utf8(e) => e.fmt(f),
-            Self::IoError(e) => e.fmt(f),
-            Self::RkyvError(e) => e.fmt(f),
-
-            #[cfg(feature = "train")]
-            Self::Crf(e) => e.fmt(f),
-
-            #[cfg(feature = "download")]
-            Self::Download(e) => e.fmt(f),
-        }
     }
 }
 

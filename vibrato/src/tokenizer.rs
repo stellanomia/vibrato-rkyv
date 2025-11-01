@@ -38,7 +38,7 @@ impl Tokenizer {
     /// Creates a new tokenizer from `DictionaryInner`.
     pub fn from_inner(dict: DictionaryInner) -> Self {
         Self {
-            dict: Arc::new(Dictionary::Owned(Box::new(dict))),
+            dict: Arc::new(Dictionary::Owned(Arc::new(dict))),
             space_cateset: None,
             max_grouping_len: None,
         }

@@ -1,7 +1,7 @@
 [package]
 name = "vibrato-rkyv"
 # NOTE(kampersanda): Developers should check compatibility with MODEL_MAGIC in dictionary.rs.
-version = "0.6.7"
+version = "0.6.8"
 edition = "2024"
 authors = [
     "stellanomia <fulmlumo@gmail.com>",
@@ -29,12 +29,15 @@ rkyv = { version = "0.8.12", features = ["hashbrown-0_15"] }
 rucrf-rkyv = { version = "0.3.3-rkyv.1", optional = true }
 sha2 = "0.10.9"
 tar = { version = "0.4.44", optional = true }
+tempfile = "3.23.0"
 thiserror = "2.0.17"
 zstd = "0.13.3"
 
+vibrato = { path = "../vendor/vibrato", optional = true }
+
 [dev-dependencies]
 criterion = { version = "0.7.0", features = ["html_reports"] }
-vibrato = "0.5.2"
+vibrato = { path = "../vendor/vibrato" }
 sudachi = { git = "https://github.com/WorksApplications/sudachi.rs.git", rev = "54e85e8f7e0a6c4b570cd7b103506b080dc60c92" }
 zip = "6.0.0"
 xz2 = "0.1.7"
@@ -44,6 +47,7 @@ default = ["train", "download"]
 
 train = ["rucrf-rkyv"]
 download = ["dep:reqwest", "dep:tar"]
+legacy = ["dep:vibrato"]
 
 [[bench]]
 name = "vibrato_init"
