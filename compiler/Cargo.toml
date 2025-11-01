@@ -5,11 +5,10 @@ edition = "2024"
 publish = false
 
 [dependencies]
-vibrato-rkyv = { path = "../vibrato", features = ["train"], default-features = false }
+vibrato-rkyv = { path = "../vibrato", features = ["train", "legacy"], default-features = false }
 clap = { version = "4.0", features = ["derive"] }  # MIT or Apache-2.0
 zstd = "0.13.3"  # MIT
 thiserror = "2.0.17"
-vibrato = { path = "../vendor/vibrato" }
 flate2 = "1.1.5"
 tar = "0.4.44"
 tempfile = "3.23.0"

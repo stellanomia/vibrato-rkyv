@@ -17,7 +17,6 @@ keywords = ["japanese", "analyzer", "tokenizer", "morphological"]
 categories = ["text-processing"]
 
 [dependencies]
-crawdad-rkyv = "0.4.0-rkyv.1"
 csv-core = "0.1.13" # Unlicense or MIT
 dirs = "6.0.0"
 hashbrown = "0.15.5"
@@ -25,29 +24,33 @@ hex = "0.4.3"
 memmap2 = "0.9.8"
 regex = "1.12.2" # MIT or Apache-2.0
 reqwest = { version = "0.12.24", features = ["blocking"], optional = true }
-rkyv = { version = "0.8.12", features = ["hashbrown-0_15"] }
-rucrf-rkyv = { version = "0.3.3-rkyv.1", optional = true }
 sha2 = "0.10.9"
 tar = { version = "0.4.44", optional = true }
 tempfile = "3.23.0"
 thiserror = "2.0.17"
 zstd = "0.13.3"
 
-vibrato = { path = "../vendor/vibrato", optional = true }
+rkyv = { version = "0.8.12", features = ["hashbrown-0_15"] }
+crawdad-rkyv = "0.4.0-rkyv.1"
+rucrf-rkyv = { version = "0.3.3-rkyv.1", optional = true }
+
+bincode = { version = "2.0.1", default-features = false, features = ["std", "alloc", "derive"], optional = true }
+crawdad ={ version = "0.4.0", optional = true }
+rucrf = { version = "0.3.3", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.7.0", features = ["html_reports"] }
-vibrato = { path = "../vendor/vibrato" }
+vibrato = "0.5.2"
 sudachi = { git = "https://github.com/WorksApplications/sudachi.rs.git", rev = "54e85e8f7e0a6c4b570cd7b103506b080dc60c92" }
 zip = "6.0.0"
 xz2 = "0.1.7"
 
 [features]
-default = ["train", "download"]
+default = ["train", "download", "legacy"]
 
 train = ["rucrf-rkyv"]
 download = ["dep:reqwest", "dep:tar"]
-legacy = ["dep:vibrato"]
+legacy = ["dep:bincode", "dep:crawdad", "dep:rucrf"]
 
 [[bench]]
 name = "vibrato_init"

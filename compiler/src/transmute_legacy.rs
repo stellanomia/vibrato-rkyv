@@ -1,10 +1,10 @@
-use std::mem::transmute;
 use std::path::{Path, PathBuf};
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Write};
 
 use clap::Parser;
 use tempfile::NamedTempFile;
+use vibrato_rkyv::Dictionary;
 use xz2::bufread::XzDecoder;
 
 use crate::{build::BuildError, dictgen::DictgenError, train::TrainError};
@@ -37,8 +37,6 @@ pub enum TransmuteLegacyError {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     VibratoRkyv(#[from] vibrato_rkyv::errors::VibratoError),
-    #[error(transparent)]
-    Vibrato(#[from] vibrato::errors::VibratoError),
 
     #[error("Unsupported file extension: {0:?}. Only '.dic', '.dic.zst', 'tar.xz', 'tar.gz' are supported.")]
     UnsupportedExtension(Option<String>),
@@ -62,11 +60,7 @@ pub fn run(args: Args) -> Result<(), TransmuteLegacyError> {
     }
 
     let reader = get_reader(&bincode_path)?;
-    let dictionary = vibrato::Dictionary::read(reader)?;
-    let legacy_inner = dictionary.data;
-    let dictionary = unsafe {
-        transmute::<vibrato::dictionary::DictionaryInner, vibrato_rkyv::dictionary::DictionaryInner>(legacy_inner)
-    };
+    let dictionary = unsafe { Dictionary::from_legacy_reader(reader)? };
 
     let out_path = args.out_dir.join("system.dic");
     println!("Writing rkyv dictionary to: {}", out_path.display());

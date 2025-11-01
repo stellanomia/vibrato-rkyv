@@ -430,14 +430,16 @@ impl Dictionary {
             {
                 use std::io::Seek;
 
+                use crate::legacy;
+
                 file.seek(io::SeekFrom::Start(0))?;
 
-                let dict = vibrato::Dictionary::read(file)?.data;
+                let dict = legacy::Dictionary::read(file)?.data;
 
                 let dict = unsafe {
                     use std::mem::transmute;
 
-                    Arc::new(transmute::<vibrato::dictionary::DictionaryInner, DictionaryInner>(dict))
+                    Arc::new(transmute::<legacy::dictionary::DictionaryInner, DictionaryInner>(dict))
                 };
 
                 return Ok(Self::Owned(dict));
@@ -674,6 +676,8 @@ impl Dictionary {
         'l: {
             use std::{io::{Seek, SeekFrom}, thread};
 
+            use crate::legacy;
+
             let mut dict_file = _dict_file;
             dict_file.seek(SeekFrom::Start(0))?;
 
@@ -684,14 +688,14 @@ impl Dictionary {
                 break 'l;
             }
 
-            let dict = vibrato::Dictionary::read(
+            let dict = legacy::Dictionary::read(
                 zstd::Decoder::new(File::open(zstd_path)?)?
             )?.data;
 
             let dict = unsafe {
                 use std::mem::transmute;
 
-                Arc::new(transmute::<vibrato::dictionary::DictionaryInner, DictionaryInner>(dict))
+                Arc::new(transmute::<legacy::dictionary::DictionaryInner, DictionaryInner>(dict))
             };
 
 
@@ -727,6 +731,33 @@ impl Dictionary {
         fs::write(&zstd_hash_path, dict_hash)?;
 
         Self::from_path(decompressed_path)
+    }
+
+    /// Creates a `Dictionary` instance from a reader of a legacy `bincode`-based dictionary.
+    ///
+    /// This function is intended for tools like the `compiler` to convert old dictionary
+    /// formats. It loads the entire dictionary into memory.
+    ///
+    /// This function is only available when the `legacy` feature is enabled.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the provided reader points to a valid, uncompressed,
+    /// `bincode`-serialized dictionary file whose `DictionaryInner` struct has the exact
+    /// same memory layout as this crate's `legacy::dictionary::DictionaryInner`.
+    /// Failure to do so will result in undefined behavior.
+    #[cfg(feature = "legacy")]
+    pub unsafe fn from_legacy_reader<R: std::io::Read>(reader: R) -> Result<Self> {
+        let legacy_dict_inner = crate::legacy::Dictionary::read(reader)?.data;
+
+        let rkyv_dict_inner = unsafe {
+            std::mem::transmute::<
+                crate::legacy::dictionary::DictionaryInner,
+                DictionaryInner,
+            >(legacy_dict_inner)
+        };
+
+        Ok(Self::Owned(Arc::new(rkyv_dict_inner)))
     }
 
     /// Creates a `Dictionary` instance from a preset, downloading it if not present.

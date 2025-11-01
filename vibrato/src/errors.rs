@@ -3,6 +3,9 @@
 use std::error::Error;
 use std::fmt::{self, Debug};
 
+#[cfg(feature = "legacy")]
+use crate::legacy;
+
 /// A specialized Result type for Vibrato.
 pub type Result<T, E = VibratoError> = std::result::Result<T, E>;
 
@@ -60,7 +63,7 @@ pub enum VibratoError {
     /// The error variant for [`VibratoError`](vibrato::errors::VibratoError).
     #[cfg(feature = "legacy")]
     #[error(transparent)]
-    Legacy(#[from] vibrato::errors::VibratoError),
+    Legacy(#[from] legacy::errors::VibratoError),
 
     /// The error variant for [`std::io::Error`](std::io::Error).
     #[error(transparent)]

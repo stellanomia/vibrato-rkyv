@@ -7,6 +7,3 @@ members = [
     "tokenize",
     "evaluate",
 ]
-exclude = [
-    "compiler/vendor/vibrato"
-]
