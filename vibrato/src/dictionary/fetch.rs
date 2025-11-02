@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 use xz2::read::XzDecoder;
 
-use crate::{dictionary::{PresetDictionaryKind, config::FileType}, errors::DownloadError};
+use crate::{dictionary::{PresetDictionaryKind, compute_file_hash, config::FileType}, errors::DownloadError};
 
 pub(crate) fn download_dictionary<P: AsRef<Path>>(kind: PresetDictionaryKind, dest: P) -> Result<PathBuf, DownloadError> {
     let meta = kind.meta();
@@ -14,8 +14,24 @@ pub(crate) fn download_dictionary<P: AsRef<Path>>(kind: PresetDictionaryKind, de
 
     let dict_path = dest.join(EXTRACTED_DICT_FILENAME);
 
-    if dict_path.exists()
-        && let Ok(mut f) = File::open(&dict_path) {
+    if dict_path.exists() {
+        let dict = File::open(&dict_path)?;
+        let dict_meta = dict.metadata()?;
+        let dict_hash = compute_file_hash(&dict_meta);
+        // `from_zstd` decompresses to the ./decompressed directory.
+        let decompressed_dir = dest.join("decompressed");
+
+        if let Ok(saved_hash) = fs::read_to_string(decompressed_dir.join("system.dic.zst.rkyv.sha256"))
+            && saved_hash == dict_hash {
+                return Ok(dict_path);
+            }
+
+        if let Ok(saved_hash) = fs::read_to_string(decompressed_dir.join("system.dic.zst.sha256"))
+            && saved_hash == dict_hash {
+                return Ok(dict_path);
+            }
+
+        if let Ok(mut f) = File::open(&dict_path) {
             let mut hasher = Sha256::new();
             io::copy(&mut f, &mut hasher)?;
             let hash = hex::encode(hasher.finalize());
@@ -23,6 +39,7 @@ pub(crate) fn download_dictionary<P: AsRef<Path>>(kind: PresetDictionaryKind, de
                 return Ok(dict_path);
             }
         }
+    }
 
     fs::create_dir_all(dest)?;
 

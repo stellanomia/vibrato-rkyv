@@ -14,10 +14,10 @@ Vibrato is a fast implementation of tokenization (or morphological analysis) bas
 
 The benchmark results below compare loading from both uncompressed and `zstd`-compressed files, demonstrating the performance difference.
 
-CPU: Intel Core i7-14700
-OS: WSL2 (Ubuntu 24.04)
-Dictionary: UniDic-cwj v3.1.1 (approx. 700MB uncompressed dictionary binary)
-Source: The benchmark code is available in the [benches](./vibrato/benches) directory.
+CPU: Intel Core i7-14700  
+OS: WSL2 (Ubuntu 24.04)  
+Dictionary: UniDic-cwj v3.1.1 (approx. 700MB uncompressed dictionary binary)  
+Source: The benchmark code is available in the [benches](./vibrato/benches) directory.  
 
 ### From Uncompressed File (`.dic`)
 
@@ -258,10 +258,6 @@ $ cargo run --release -p compiler -- full-build \
     ... # other required arguments
     -o ./my_dictionary
 ```
-
-## More advanced usages
-
-The directory [docs](./docs/) provides descriptions of more advanced usages such as training or benchmarking.
 
 ## License
 

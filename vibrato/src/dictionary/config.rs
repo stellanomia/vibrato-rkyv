@@ -174,5 +174,6 @@ impl fmt::Display for PresetDictionaryKind {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum FileType {
     Tar,
+    #[allow(unused)]
     TarXz,
 }

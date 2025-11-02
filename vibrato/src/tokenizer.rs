@@ -22,11 +22,14 @@ pub struct Tokenizer {
 }
 
 impl Tokenizer {
-    /// Creates a new instance.
+    /// Creates a new tokenizer.
     ///
-    /// # Arguments
+    /// The dictionary is moved into the tokenizer. If you need to share the dictionary
+    /// among multiple tokenizers, use [`Tokenizer::from_shared_dictionary`].
     ///
-    ///  - `dict`: Dictionary to be used.
+    /// **Note:** When using `Dictionary::from_zstd` with the `legacy` feature, this
+    /// function's move semantics may cause the current thread to block and wait for
+    /// a background caching thread to finish when the tokenizer is dropped.
     pub fn new(dict: Dictionary) -> Self {
         Self {
             dict: Arc::new(dict),
@@ -38,7 +41,7 @@ impl Tokenizer {
     /// Creates a new tokenizer from `DictionaryInner`.
     pub fn from_inner(dict: DictionaryInner) -> Self {
         Self {
-            dict: Arc::new(Dictionary::Owned(Arc::new(dict))),
+            dict: Arc::new(Dictionary::Owned { dict: Arc::new(dict), _caching_handle: None }),
             space_cateset: None,
             max_grouping_len: None,
         }
@@ -68,8 +71,8 @@ impl Tokenizer {
     pub fn ignore_space(mut self, yes: bool) -> Result<Self> {
         if yes {
             let cate_id = match &*self.dict {
-                Dictionary::Archived(archived_dictionary) => archived_dictionary.char_prop().cate_id("SPACE"),
-                Dictionary::Owned(dictionary_inner) => dictionary_inner.char_prop().cate_id("SPACE"),
+                Dictionary::Archived(archived_dict) => archived_dict.char_prop().cate_id("SPACE"),
+                Dictionary::Owned { dict, ..} => dict.char_prop().cate_id("SPACE"),
             }.ok_or_else(|| {
                 VibratoError::invalid_argument(
                     "dict",
@@ -107,8 +110,8 @@ impl Tokenizer {
     /// Gets the reference to the dictionary.
     pub(crate) fn dictionary<'a>(&'a self) -> DictionaryInnerRef<'a> {
         match &*self.dict {
-            Dictionary::Archived(archived_dictionary) => DictionaryInnerRef::Archived(archived_dictionary),
-            Dictionary::Owned(dictionary_inner) => DictionaryInnerRef::Owned(dictionary_inner),
+            Dictionary::Archived(archived_dict) => DictionaryInnerRef::Archived(archived_dict),
+            Dictionary::Owned { dict, .. } => DictionaryInnerRef::Owned(dict),
         }
     }
 
@@ -119,12 +122,12 @@ impl Tokenizer {
 
     pub(crate) fn build_lattice(&self, sent: &Sentence, lattice: &mut Lattice) {
         match &*self.dict {
-            Dictionary::Archived(archived_dictionary) => match archived_dictionary.connector() {
+            Dictionary::Archived(archived_dict) => match archived_dict.connector() {
                 ArchivedConnectorWrapper::Matrix(c) => self.build_lattice_inner(sent, lattice, c),
                 ArchivedConnectorWrapper::Raw(c) => self.build_lattice_inner(sent, lattice, c),
                 ArchivedConnectorWrapper::Dual(c) => self.build_lattice_inner(sent, lattice, c),
             },
-            Dictionary::Owned(dictionary_inner) => match dictionary_inner.connector() {
+            Dictionary::Owned{ dict, .. } => match dict.connector() {
                 ConnectorWrapper::Matrix(c) => self.build_lattice_inner(sent, lattice, c),
                 ConnectorWrapper::Raw(c) => self.build_lattice_inner(sent, lattice, c),
                 ConnectorWrapper::Dual(c) => self.build_lattice_inner(sent, lattice, c),

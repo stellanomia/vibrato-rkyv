@@ -107,7 +107,10 @@ enum DictBuffer {
 /// A read-only dictionary for tokenization, loaded via zero-copy deserialization.
 pub enum Dictionary {
     Archived(ArchivedDictionary),
-    Owned(Arc<DictionaryInner>),
+    Owned {
+        dict: Arc<DictionaryInner>,
+        _caching_handle: Option<Arc<std::thread::JoinHandle<Result<()>>>>,
+    },
 }
 
 pub struct ArchivedDictionary {
@@ -124,6 +127,17 @@ impl Deref for ArchivedDictionary {
     type Target = ArchivedDictionaryInner;
     fn deref(&self) -> &Self::Target {
         self.data
+    }
+}
+
+impl Drop for Dictionary {
+    fn drop(&mut self) {
+        if let Dictionary::Owned { _caching_handle, .. } = self
+            && let Some(handle_arc) = _caching_handle.take()
+            && let Ok(handle) = Arc::try_unwrap(handle_arc)
+            && let Err(e) = handle.join() {
+                log::error!("[vibrato-rkyv] Background caching thread panicked: {:?}", e);
+            }
     }
 }
 
@@ -286,7 +300,7 @@ impl DictionaryInner {
 impl Dictionary {
     /// Creates a dictionary from `DictionaryInner`.
     pub fn from_inner(dict: DictionaryInner) -> Self {
-        Self::Owned(Arc::new(dict))
+        Self::Owned{ dict: Arc::new(dict), _caching_handle: None }
     }
 
     /// Serializes the dictionary data to a writer using the `rkyv` format.
@@ -336,7 +350,7 @@ impl Dictionary {
         W: Write,
     {
         match self {
-            Dictionary::Owned(dict) => dict.write(wtr),
+            Dictionary::Owned { dict, ..} => dict.write(wtr),
             Dictionary::Archived(_) => unreachable!(),
         }
     }
@@ -442,7 +456,7 @@ impl Dictionary {
                     Arc::new(transmute::<legacy::dictionary::DictionaryInner, DictionaryInner>(dict))
                 };
 
-                return Ok(Self::Owned(dict));
+                return Ok(Self::Owned{ dict, _caching_handle: None });
             }
         } else if !magic.starts_with(MODEL_MAGIC) {
             return Err(VibratoError::invalid_argument(
@@ -712,7 +726,7 @@ impl Dictionary {
                 Ok(())
             });
 
-            if wait_for_cache {
+            let _caching_handle = if wait_for_cache {
                 handle.join().map_err(|e| {
                     let panic_msg = if let Some(s) = e.downcast_ref::<&'static str>() {
                         s.to_string()
@@ -723,9 +737,13 @@ impl Dictionary {
                     };
                     VibratoError::ThreadPanic(panic_msg)
                 })??;
-            }
 
-            return Ok(Self::Owned(dict));
+                None
+            } else {
+                Some(std::sync::Arc::new(handle))
+            };
+
+            return Ok(Self::Owned { dict, _caching_handle });
         }
 
         fs::write(&zstd_hash_path, dict_hash)?;
@@ -757,7 +775,7 @@ impl Dictionary {
             >(legacy_dict_inner)
         };
 
-        Ok(Self::Owned(Arc::new(rkyv_dict_inner)))
+        Ok(Self::Owned { dict: Arc::new(rkyv_dict_inner), _caching_handle: None })
     }
 
     /// Creates a `Dictionary` instance from a preset, downloading it if not present.
@@ -850,7 +868,7 @@ impl Dictionary {
 }
 
 #[inline(always)]
-fn compute_file_hash(meta: &Metadata) -> String {
+pub(crate) fn compute_file_hash(meta: &Metadata) -> String {
     let mut hasher = Sha256::new();
     #[cfg(unix)]
     {
