@@ -18,7 +18,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use memmap2::Mmap;
-use rkyv::Archived;
+use rkyv::{Archived, access_unchecked};
 use rkyv::rancor::Error;
 use rkyv::util::AlignedVec;
 use rkyv::{
@@ -84,6 +84,14 @@ impl ArchivedLexType {
             ArchivedLexType::Unknown => LexType::Unknown,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub enum LoadMode {
+    /// Perform validation on every load. (Safest)
+    Validate,
+    /// Skip validation if a pre-computed hash matches. (Fastest for repeated loads)
+    TrustCache,
 }
 
 /// Inner data of [`Dictionary`].
@@ -415,7 +423,132 @@ impl Dictionary {
     /// Creates a dictionary from a file path using memory-mapping for fast loading.
     ///
     /// This function maps the dictionary file into memory and provides zero-copy access to it,
-    /// which is extremely fast and memory-efficient.
+    /// which is fast and memory-efficient. The loading behavior can be configured
+    /// with the `mode` parameter to balance safety and performance.
+    ///
+    /// # Arguments
+    ///
+    /// - `path` - A path to the compiled dictionary file.
+    /// - `mode` - A [`LoadMode`] that specifies the validation strategy:
+    ///   - `LoadMode::Validate`: Performs a full validation of the dictionary data on
+    ///     every load. This is the safest mode and does **not** write a hash cache file.
+    ///     Use this mode if you need to guarantee validation on every single run or if you
+    ///     are in an environment where writing cache files is undesirable (e.g., read-only
+    ///     filesystems).
+    ///   - `LoadMode::TrustCache`: Attempts a faster load by skipping full validation if a
+    ///     valid cache file is found. It checks if a `.sha256` file exists and matches the
+    ///     current dictionary file. If it matches, the dictionary is loaded without validation.
+    ///     If the hash file is missing, mismatched, or the dictionary is invalid, this mode
+    ///     falls back to performing a full validation. Upon successful validation in this
+    ///     fallback case, it **creates or updates** the `.sha256` hash file to accelerate
+    ///     subsequent loads.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be opened, is corrupted,
+    /// or was created with an incompatible version of vibrato.
+    pub fn from_path<P: AsRef<std::path::Path>>(path: P, mode: LoadMode) -> Result<Self> {
+        let path = path.as_ref();
+        let mut file = File::open(path).map_err(|e| {
+            VibratoError::invalid_argument("path", format!("Failed to open dictionary file: {}", e))
+        })?;
+        let meta = &file.metadata()?;
+        let mut magic = [0u8; MODEL_MAGIC_LEN];
+        file.read_exact(&mut magic)?;
+
+        if magic.starts_with(LEGACY_MODEL_MAGIC_PREFIX) {
+            #[cfg(not(feature = "legacy"))]
+            return Err(VibratoError::invalid_argument(
+                "path",
+                "This appears to be a legacy bincode-based dictionary file. Please use a dictionary compiled for the rkyv version of vibrato.",
+            ));
+
+            #[cfg(feature = "legacy")]
+            {
+                use std::io::Seek;
+
+                use crate::legacy;
+
+                file.seek(io::SeekFrom::Start(0))?;
+
+                let dict = legacy::Dictionary::read(file)?.data;
+
+                let dict = unsafe {
+                    use std::mem::transmute;
+
+                    Arc::new(transmute::<legacy::dictionary::DictionaryInner, DictionaryInner>(dict))
+                };
+
+                return Ok(Self::Owned{ dict, _caching_handle: None });
+            }
+        } else if !magic.starts_with(MODEL_MAGIC) {
+            return Err(VibratoError::invalid_argument(
+                "path",
+                "The magic number of the input model mismatches.",
+            ));
+        }
+
+        let mmap = unsafe { Mmap::map(&file)? };
+
+        let Some(data_bytes) = &mmap.get(DATA_START..) else {
+            return Err(VibratoError::invalid_argument(
+                "path",
+                "Dictionary file too small or corrupted.",
+            ));
+        };
+
+        let hash_path = path.with_added_extension("sha256");
+        let current_hash = compute_metadata_hash(meta);
+
+        if mode == LoadMode::TrustCache
+            && hash_path.exists()
+            && let Ok(cached_hash) = fs::read_to_string(&hash_path)
+            && current_hash == cached_hash {
+                return unsafe { Self::from_path_unchecked(path) };
+            }
+
+        match access::<ArchivedDictionaryInner, Error>(data_bytes) {
+            Ok(archived) => {
+                if mode == LoadMode::TrustCache {
+                    fs::write(&hash_path, current_hash)?;
+                }
+
+                let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
+                Ok(Self::Archived(
+                    ArchivedDictionary {
+                        _buffer: DictBuffer::Mmap(mmap),
+                        data,
+                    }
+                ))
+            }
+            Err(_) => {
+                let mut aligned_bytes = AlignedVec::with_capacity(data_bytes.len());
+                aligned_bytes.extend_from_slice(data_bytes);
+
+                let archived = access::<ArchivedDictionaryInner, Error>(&aligned_bytes).map_err(|e| {
+                    VibratoError::invalid_state(
+                        "rkyv validation failed. The dictionary file may be corrupted or incompatible.".to_string(),
+                        e.to_string(),
+                    )
+                })?;
+
+                let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
+                Ok(Self::Archived(
+                    ArchivedDictionary {
+                        _buffer: DictBuffer::Aligned(aligned_bytes),
+                        data,
+                    }
+                ))
+            }
+        }
+    }
+
+    /// Creates a dictionary from a file path using memory-mapping without validation.
+    ///
+    /// This function is a version of `from_path` that skips data validation for
+    /// faster loading. It memory-maps the dictionary file for zero-copy access.
+    /// It is intended for situations where the file's integrity has already been
+    /// confirmed, for instance, through a checksum.
     ///
     /// # Arguments
     ///
@@ -423,9 +556,24 @@ impl Dictionary {
     ///
     /// # Errors
     ///
-    /// Returns an error if the file cannot be opened, is corrupted,
-    /// or was created with an incompatible version of vibrato.
-    pub fn from_path<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
+    /// Returns an error if the file cannot be opened, is too small, or has an
+    /// incorrect magic number. This function does not validate the integrity of the
+    /// serialized data itself.
+    ///
+    /// # Safety
+    ///
+    /// This function is unsafe because it bypasses `rkyv`'s validation steps and
+    /// directly accesses the memory-mapped data. The caller must ensure that the
+    /// file's contents are a valid and uncorrupted representation of a dictionary.
+    ///
+    /// If the file is corrupted or truncated, this function may read invalid data
+    /// as if it were valid pointers or offsets. This can lead to out-of-bounds
+    /// memory access, panics, or other forms of undefined behavior.
+    ///
+    /// The magic number check at the start of the file helps prevent loading a
+    /// completely different file type but does not guarantee the integrity of the
+    /// subsequent data.
+    pub unsafe fn from_path_unchecked<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let mut file = File::open(path).map_err(|e| {
             VibratoError::invalid_argument("path", format!("Failed to open dictionary file: {}", e))
@@ -474,51 +622,16 @@ impl Dictionary {
             ));
         };
 
-        #[cfg(not(debug_assertions))]
-        {
-            use rkyv::access_unchecked;
-            let archived = unsafe { access_unchecked::<ArchivedDictionaryInner>(data_bytes) };
-            let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
-            return Ok(
-                Self::Archived(
-                    ArchivedDictionary {
-                        _buffer: DictBuffer::Mmap(mmap),
-                        data,
-                    }
-            ));
-        }
-
-        #[allow(unreachable_code)]
-        match access::<ArchivedDictionaryInner, Error>(data_bytes) {
-            Ok(archived) => {
-                let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
-                Ok(Self::Archived(
-                    ArchivedDictionary {
-                        _buffer: DictBuffer::Mmap(mmap),
-                        data,
-                    }
-                ))
-            }
-            Err(_) => {
-                let mut aligned_bytes = AlignedVec::with_capacity(data_bytes.len());
-                aligned_bytes.extend_from_slice(data_bytes);
-
-                let archived = access::<ArchivedDictionaryInner, Error>(&aligned_bytes).map_err(|e| {
-                    VibratoError::invalid_state(
-                        "rkyv validation failed. The dictionary file may be corrupted or incompatible.".to_string(),
-                        e.to_string(),
-                    )
-                })?;
-
-                let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
-                Ok(Self::Archived(
-                    ArchivedDictionary {
-                        _buffer: DictBuffer::Aligned(aligned_bytes),
-                        data,
-                    }
-                ))
-            }
-        }
+        let archived = unsafe { access_unchecked::<ArchivedDictionaryInner>(data_bytes) };
+        let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
+        Ok(
+            Self::Archived(
+                ArchivedDictionary {
+                    _buffer: DictBuffer::Mmap(mmap),
+                    data,
+                }
+            )
+        )
     }
 
     /// Loads a dictionary from a Zstandard-compressed file, with automatic caching.
@@ -627,7 +740,7 @@ impl Dictionary {
         let zstd_file = File::open(zstd_path)?;
         let meta = zstd_file.metadata()?;
 
-        let dict_hash = compute_file_hash(&meta);
+        let dict_hash = compute_metadata_hash(&meta);
         let decompressed_dir = cache_dir.as_ref().to_path_buf();
 
         // `let file = File::open(zstd_path)?` is already guarantees that zstd_path is a File.
@@ -641,7 +754,7 @@ impl Dictionary {
 
         if let Ok(compressed_dict_hash) = fs::read_to_string(&zstd_hash_path)
             && compressed_dict_hash.trim() == dict_hash {
-                return Self::from_path(decompressed_path);
+                return Self::from_path(decompressed_path, LoadMode::TrustCache);
             }
 
         #[cfg(feature = "legacy")]
@@ -652,7 +765,7 @@ impl Dictionary {
         #[cfg(feature = "legacy")]
         if let Ok(compressed_dict_hash) = fs::read_to_string(&rkyv_hash_path)
             && compressed_dict_hash.trim() == dict_hash {
-                return Self::from_path(transmuted_path);
+                return Self::from_path(transmuted_path, LoadMode::TrustCache);
             }
 
         if let Err(e) = fs::create_dir_all(&decompressed_dir) {
@@ -665,7 +778,7 @@ impl Dictionary {
 
                 if let Ok(compressed_dict_hash) = fs::read_to_string(&zstd_hash_path)
                     && compressed_dict_hash.trim() == dict_hash {
-                        return Self::from_path(decompressed_path);
+                        return Self::from_path(decompressed_path, LoadMode::TrustCache);
                     }
             } else {
                 Err(e)?;
@@ -680,6 +793,16 @@ impl Dictionary {
             io::copy(&mut decoder, &mut temp_file)?;
             temp_file.as_file().sync_all()?;
         }
+
+        let mmap = unsafe { Mmap::map(temp_file.as_file())? };
+
+        rkyv::access::<ArchivedDictionaryInner, Error>(&mmap[DATA_START..]).map_err(|e| {
+            VibratoError::invalid_state(
+                "Decompressed dictionary is invalid. The original .zst file may be corrupted.",
+                e.to_string(),
+            )
+        })?;
+
 
         let _ = fs::remove_file(&decompressed_path);
 
@@ -748,7 +871,7 @@ impl Dictionary {
 
         fs::write(&zstd_hash_path, dict_hash)?;
 
-        Self::from_path(decompressed_path)
+        unsafe { Self::from_path_unchecked(decompressed_path) }
     }
 
     /// Creates a [`Dictionary`] instance from a reader for a legacy
@@ -868,7 +991,7 @@ impl Dictionary {
 }
 
 #[inline(always)]
-pub(crate) fn compute_file_hash(meta: &Metadata) -> String {
+pub(crate) fn compute_metadata_hash(meta: &Metadata) -> String {
     let mut hasher = Sha256::new();
     #[cfg(unix)]
     {
@@ -885,6 +1008,47 @@ pub(crate) fn compute_file_hash(meta: &Metadata) -> String {
         use std::os::windows::fs::MetadataExt;
         hasher.update(meta.file_size().to_le_bytes());
         hasher.update(meta.last_write_time().to_le_bytes());
+        hasher.update(meta.creation_time().to_le_bytes());
+        hasher.update(meta.file_attributes().to_le_bytes());
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    {
+        use std::time::SystemTime;
+
+        fn update_system_time(
+            time: Result<SystemTime, std::io::Error>,
+            hasher: &mut Sha256,
+        ) {
+            match time.and_then(|t| {
+                t.duration_since(SystemTime::UNIX_EPOCH)
+                    .map_err(|_| std::io::Error::from(std::io::ErrorKind::Other))
+            }) {
+                Ok(duration) => {
+                    hasher.update(duration.as_secs().to_le_bytes());
+                    hasher.update(duration.subsec_nanos().to_le_bytes());
+                }
+                Err(_) => {
+                    hasher.update([0u8; 12]);
+                }
+            }
+        }
+
+        let file_type = meta.file_type();
+        let type_byte: u8 = if file_type.is_file() { 0x01 }
+        else if file_type.is_dir() { 0x02 }
+        else if file_type.is_symlink() { 0x03 }
+        else { 0x00 };
+        hasher.update([type_byte]);
+
+        let readonly_byte: u8 = if meta.permissions().readonly() { 0x01 } else { 0x00 };
+        hasher.update([readonly_byte]);
+
+        hasher.update(meta.len().to_le_bytes());
+
+        update_system_time(meta.modified(), &mut hasher);
+
+        update_system_time(meta.created(), &mut hasher);
     }
 
     hex::encode(hasher.finalize())

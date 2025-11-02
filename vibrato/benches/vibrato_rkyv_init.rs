@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use vibrato_rkyv::Dictionary;
-use vibrato_rkyv::dictionary::PresetDictionaryKind;
+use vibrato_rkyv::dictionary::{LoadMode, PresetDictionaryKind};
 use std::path::Path;
 use std::fs;
 
@@ -42,7 +42,7 @@ fn bench_vibrato_rkyv_dictionary_load(c: &mut Criterion) {
     group.bench_function("vibrato-rkyv/from_path/warm", |b| {
         let _ = fs::read(dict_rkyv_path).unwrap();
         b.iter(|| {
-            std::hint::black_box(vibrato_rkyv::Dictionary::from_path(dict_rkyv_path).unwrap());
+            std::hint::black_box(vibrato_rkyv::Dictionary::from_path(dict_rkyv_path, LoadMode::TrustCache).unwrap());
         })
     });
 
@@ -61,7 +61,7 @@ fn bench_vibrato_rkyv_dictionary_load(c: &mut Criterion) {
         b.iter_with_setup(
             drop_caches,
             |_| {
-                std::hint::black_box(vibrato_rkyv::Dictionary::from_path(dict_rkyv_path).unwrap());
+                std::hint::black_box(vibrato_rkyv::Dictionary::from_path(dict_rkyv_path, LoadMode::TrustCache).unwrap());
             },
         )
     });

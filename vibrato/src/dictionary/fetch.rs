@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 use xz2::read::XzDecoder;
 
-use crate::{dictionary::{PresetDictionaryKind, compute_file_hash, config::FileType}, errors::DownloadError};
+use crate::{dictionary::{PresetDictionaryKind, compute_metadata_hash, config::FileType}, errors::DownloadError};
 
 pub(crate) fn download_dictionary<P: AsRef<Path>>(kind: PresetDictionaryKind, dest: P) -> Result<PathBuf, DownloadError> {
     let meta = kind.meta();
@@ -17,7 +17,7 @@ pub(crate) fn download_dictionary<P: AsRef<Path>>(kind: PresetDictionaryKind, de
     if dict_path.exists() {
         let dict = File::open(&dict_path)?;
         let dict_meta = dict.metadata()?;
-        let dict_hash = compute_file_hash(&dict_meta);
+        let dict_hash = compute_metadata_hash(&dict_meta);
         // `from_zstd` decompresses to the ./decompressed directory.
         let decompressed_dir = dest.join("decompressed");
 

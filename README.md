@@ -38,7 +38,7 @@ Source: The benchmark code is available in the [benches](./vibrato/benches) dire
 To take advantage of this performance, use the `Dictionary::from_path` or `Dictionary::from_zstd` methods:
 
 ```rust
-use vibrato_rkyv::Dictionary;
+use vibrato_rkyv::{Dictionary, LoadMode};
 
 // Recommended for uncompressed dictionaries:
 // Almost instantaneous loading via memory-mapping.
@@ -46,7 +46,7 @@ let dict_mmap = Dictionary::from_path("path/to/system.dic")?;
 
 // Recommended for zstd-compressed dictionaries:
 // Decompresses and caches on the first run, then uses memory-mapping.
-let dict_zstd = Dictionary::from_zstd("path/to/system.dic.zst")?;
+let dict_zstd = Dictionary::from_zstd("path/to/system.dic.zst", LoadMode::TrustCache)?;
 ```
 
 ## Differences
@@ -73,10 +73,10 @@ This eliminates the need for manual conversion for most use cases. For users who
 - **New Recommended Loading APIs:** For maximum performance, use `Dictionary::from_path()` for uncompressed files and `Dictionary::from_zstd()` for `zstd`-compressed files. These methods leverage memory-mapping and caching for near-instantaneous loading. While `Dictionary::read()` is still available for generic readers, it is less efficient.
 
 ```rust
-use vibrato_rkyv::Dictionary;
+use vibrato_rkyv::{dictionary::LoadMode, Dictionary};
 
 // Recommended: Zero-copy loading via memory-mapping.
-let dict = Dictionary::from_path("path/to/system.dic")?;
+let dict = Dictionary::from_path("path/to/system.dic", LoadMode::TrustCache)?;
 ```
 
 ### Additional Improvements
