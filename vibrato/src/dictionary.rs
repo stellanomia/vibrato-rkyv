@@ -800,20 +800,9 @@ impl Dictionary {
             temp_file.as_file().sync_all()?;
         }
 
-        let mmap = unsafe { Mmap::map(temp_file.as_file())? };
-
-        rkyv::access::<ArchivedDictionaryInner, Error>(&mmap[DATA_START..]).map_err(|e| {
-            VibratoError::invalid_state(
-                "Decompressed dictionary is invalid. The original .zst file may be corrupted.",
-                e.to_string(),
-            )
-        })?;
-
-
         let _ = fs::remove_file(&decompressed_path);
 
-        let mut _dict_file = temp_file.persist(&decompressed_path)?;
-
+        let mut dict_file = temp_file.persist(&decompressed_path)?;
 
         #[cfg(feature = "legacy")]
         'l: {
@@ -821,7 +810,6 @@ impl Dictionary {
 
             use crate::legacy;
 
-            let mut dict_file = _dict_file;
             dict_file.seek(SeekFrom::Start(0))?;
 
             let mut magic = [0; MODEL_MAGIC_LEN];
@@ -874,6 +862,15 @@ impl Dictionary {
 
             return Ok(Self::Owned { dict, _caching_handle });
         }
+
+        let mmap = unsafe { Mmap::map(&dict_file)? };
+
+        rkyv::access::<ArchivedDictionaryInner, Error>(&mmap[DATA_START..]).map_err(|e| {
+            VibratoError::invalid_state(
+                "Decompressed dictionary is invalid. The original .zst file may be corrupted.",
+                e.to_string(),
+            )
+        })?;
 
         fs::write(&zstd_hash_path, dict_hash)?;
 
