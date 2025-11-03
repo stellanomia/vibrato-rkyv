@@ -1,0 +1,13 @@
+[package]
+name = "manual_load"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+dirs = "6.0.0"
+vibrato-rkyv = { path = "../../vibrato", features = ["legacy"] }
+
+[[bin]]
+name = "manual_load"
+path = "main.rs"

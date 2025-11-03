@@ -6,4 +6,5 @@ members = [
     "map",
     "tokenize",
     "evaluate",
+    "examples/*",
 ]

@@ -504,7 +504,13 @@ impl Dictionary {
             && hash_path.exists()
             && let Ok(cached_hash) = fs::read_to_string(&hash_path)
             && current_hash == cached_hash {
-                return unsafe { Self::from_path_unchecked(path) };
+                let archived = unsafe { access_unchecked::<ArchivedDictionaryInner>(data_bytes) };
+                let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
+                return {
+                    Ok(
+                        Dictionary::Archived(ArchivedDictionary { _buffer: DictBuffer::Mmap(mmap), data })
+                    )
+                };
             }
 
         match access::<ArchivedDictionaryInner, Error>(data_bytes) {
@@ -729,9 +735,9 @@ impl Dictionary {
     /// # }
     /// ```
     #[inline(always)]
-    pub fn from_zstd_with_options<P: AsRef<std::path::Path>>(
+    pub fn from_zstd_with_options<P: AsRef<std::path::Path>, Q: AsRef<std::path::Path>>(
         path: P,
-        cache_dir: P,
+        cache_dir: Q,
         allow_fallback: bool,
         #[cfg(feature = "legacy")]
         wait_for_cache: bool,
