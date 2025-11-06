@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use csv_core::ReadFieldResult;
 use vibrato_rkyv::dictionary::Dictionary;
 use vibrato_rkyv::trainer::Corpus;
-use vibrato_rkyv::Tokenizer;
+use vibrato_rkyv::{CacheStrategy, Tokenizer};
 
 use clap::Parser;
 
@@ -58,7 +58,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
     eprintln!("Loading the dictionary...");
-    let dict = Dictionary::from_zstd(args.sysdic_in)?;
+    let dict = Dictionary::from_zstd(args.sysdic_in, CacheStrategy::GlobalCache)?;
 
     let tokenizer = Tokenizer::new(dict).max_grouping_len(args.max_grouping_len.unwrap_or(0));
     let mut worker = tokenizer.new_worker();

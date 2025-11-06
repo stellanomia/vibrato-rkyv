@@ -21,10 +21,19 @@ Source: The benchmark code is available in the [benches](./vibrato/benches) dire
 
 ### From Uncompressed File (`.dic`)
 
+The table below compares the performance of loading a dictionary from a pre-decompressed `.dic` file. The fastest possible speed is achieved with `from_path_unchecked`, while `from_path` with `LoadMode::TrustCache` provides a safe, near-instant alternative.
+
 | Condition | Original `vibrato` (Read from stream) | `vibrato-rkyv` (Memory-mapped) | Speedup |
 | :--- | :--- | :--- | :--- |
-| Cold Start | ~42 s | ~1.1 ms | ~38,000x |
-| Warm Start | ~34 s | ~3.0 μs | ~11,000,000x |
+| Cold Start (Safe Cache)¹ | ~42 s | **~1.1 ms** | ~38,000x |
+| Warm Start (Unchecked)² | ~34 s | **~2.9 µs** | ~11,700,000x |
+| Warm Start (Safe Cache)³ | ~34 s | **~4.1 µs** | ~8,300,000x |
+
+This shows that the safety mechanism of the cache (metadata hashing and file check) adds a minimal overhead of just ~1.2 µs compared to the unsafe version.
+
+¹ **Cold Start (Safe Cache)**: The file is not in the OS page cache, but the application cache (proof file) is valid. This measures the cost of disk I/O.  
+² **Warm Start (Unchecked)**: The fastest possible scenario using `from_path_unchecked`. The file is in the OS page cache, and bytechecks are bypassed.  
+³ **Warm Start (Safe Cache)**: A typical fast reload scenario using `LoadMode::TrustCache`. The file is in the OS page cache, and minimal validation is performed.
 
 ### From Zstd-Compressed File (`.dic.zst`)
 
@@ -155,9 +164,9 @@ use vibrato_rkyv::{dictionary::PresetDictionaryKind, Dictionary, Tokenizer};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Specify a directory to cache the dictionary.
-    let mut cache_dir = dirs::cache_dir().unwrap_or_else(|| PathBuf::from(".cache"));
-    cache_dir.push("vibrato-rkyv");
-    std::fs::create_dir_all(&cache_dir)?;
+    let cache_dir = dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from(".cache"))
+        .join("vibrato-rkyv");
 
     // Downloads and loads a preset dictionary (e.g., IPADIC).
     // The dictionary is cached in the specified directory, so subsequent runs are instantaneous.

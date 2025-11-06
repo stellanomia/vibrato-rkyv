@@ -9,13 +9,14 @@ pub(crate) mod mapper;
 pub(crate) mod unknown;
 pub(crate) mod word_idx;
 
-use std::fs::{self, File, Metadata};
-use std::io::{self, ErrorKind, Read, Write};
+use std::fs::{self, File, Metadata, create_dir_all};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
 
 #[cfg(feature = "download")]
 use std::path::Path;
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, LazyLock};
 
 use memmap2::Mmap;
 use rkyv::{Archived, access_unchecked};
@@ -43,7 +44,12 @@ pub(crate) use crate::dictionary::lexicon::WordParam;
 #[cfg(feature = "download")]
 pub use crate::dictionary::config::PresetDictionaryKind;
 
-/// Magic bytes identifying Vibrato Tokenizer with rkyv v0.6 model file.
+/// Magic bytes identifying Vibrato Tokenizer.
+///
+/// The version "0.6" in this constant indicates the model format version, which is
+/// now decoupled from the crate's semantic version. This magic byte
+/// is currently not expected to be modified. This is based on the policy of maintaining
+/// backward compatibility with dictionary formats.
 pub const MODEL_MAGIC: &[u8] = b"VibratoTokenizerRkyv 0.6\n";
 
 const MODEL_MAGIC_LEN: usize = MODEL_MAGIC.len();
@@ -54,37 +60,19 @@ const DATA_START: usize = MODEL_MAGIC_LEN + PADDING_LEN;
 /// Prefix of magic bytes for legacy bincode-based models.
 pub const LEGACY_MODEL_MAGIC_PREFIX: &[u8] = b"VibratoTokenizer 0.";
 
-/// Type of a lexicon that contains the word.
-#[derive(
-    Clone, Copy, Eq, PartialEq, Debug, Hash,
-    Archive, Serialize, Deserialize,
-)]
-#[rkyv(
-    compare(PartialEq),
-    derive(Debug, Eq, PartialEq, Hash, Clone, Copy),
-)]
-#[repr(u8)]
-#[derive(Default)]
-pub enum LexType {
-    /// System lexicon.
-    #[default]
-    System,
-    /// User lexicon.
-    User,
-    /// Unknown words.
-    Unknown,
-}
+pub static GLOBAL_CACHE_DIR: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
+    let path = dirs::cache_dir()?.join("vibrato-rkyv");
+    fs::create_dir_all(&path).ok()?;
 
-impl ArchivedLexType {
-    /// Converts this [`ArchivedLexType`] into its corresponding [`LexType`].
-    pub fn to_native(&self) -> LexType {
-        match self {
-            ArchivedLexType::System => LexType::System,
-            ArchivedLexType::User => LexType::User,
-            ArchivedLexType::Unknown => LexType::Unknown,
-        }
-    }
-}
+    Some(path)
+});
+
+pub static GLOBAL_DATA_DIR: LazyLock<Option<PathBuf>> = LazyLock::new(|| {
+    let path = dirs::data_local_dir()?.join("vibrato-rkyv");
+    fs::create_dir_all(&path).ok()?;
+
+    Some(path)
+});
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum LoadMode {
@@ -92,6 +80,41 @@ pub enum LoadMode {
     Validate,
     /// Skip validation if a pre-computed hash matches. (Fastest for repeated loads)
     TrustCache,
+}
+
+/// Specifies the caching strategy for dictionaries decompressed from a Zstandard archive.
+pub enum CacheStrategy {
+    /// Creates a `.cache` subdirectory in the same directory as the compressed dictionary.
+    ///
+    /// This strategy keeps the cache data alongside the original file.
+    /// Fails if the parent directory is not writable.
+    Local,
+
+    /// Uses a shared, user-specific cache directory appropriate for the operating system.
+    ///
+    /// This is a good default for most applications, especially when dictionary files might
+    /// be stored in read-only locations. The path is determined by `dirs::cache_dir()`.
+    ///
+    /// | Platform | Value                             | Example                               |
+    /// | -------- | --------------------------------- | ------------------------------------- |
+    /// | Linux    | `$XDG_CACHE_HOME` or `$HOME/.cache` | `/home/alice/.cache`                  |
+    /// | macOS    | `$HOME/Library/Caches`            | `/Users/Alice/Library/Caches`         |
+    /// | Windows  | `{FOLDERID_LocalAppData}`         | `C:\Users\Alice\AppData\Local`        |
+    ///
+    GlobalCache,
+
+    /// Uses a shared, user-specific data directory appropriate for the operating system.
+    ///
+    /// This is similar to `GlobalCache` but uses a directory typically intended for persistent,
+    /// non-roaming application data. The path is determined by `dirs::data_local_dir()`.
+    ///
+    /// | Platform | Value                                     | Example                               |
+    /// | -------- | ----------------------------------------- | ------------------------------------- |
+    /// | Linux    | `$XDG_DATA_HOME` or `$HOME/.local/share`  | `/home/alice/.local/share`            |
+    /// | macOS    | `$HOME/Library/Application Support`       | `/Users/Alice/Library/Application Support` |
+    /// | Windows  | `{FOLDERID_LocalAppData}`                 | `C:\Users\Alice\AppData\Local`        |
+    ///
+    GlobalData,
 }
 
 /// Inner data of [`Dictionary`].
@@ -135,6 +158,38 @@ impl Deref for ArchivedDictionary {
     type Target = ArchivedDictionaryInner;
     fn deref(&self) -> &Self::Target {
         self.data
+    }
+}
+
+/// Type of a lexicon that contains the word.
+#[derive(
+    Clone, Copy, Eq, PartialEq, Debug, Hash,
+    Archive, Serialize, Deserialize,
+)]
+#[rkyv(
+    compare(PartialEq),
+    derive(Debug, Eq, PartialEq, Hash, Clone, Copy),
+)]
+#[repr(u8)]
+#[derive(Default)]
+pub enum LexType {
+    /// System lexicon.
+    #[default]
+    System,
+    /// User lexicon.
+    User,
+    /// Unknown words.
+    Unknown,
+}
+
+impl ArchivedLexType {
+    /// Converts this [`ArchivedLexType`] into its corresponding [`LexType`].
+    pub fn to_native(&self) -> LexType {
+        match self {
+            ArchivedLexType::System => LexType::System,
+            ArchivedLexType::User => LexType::User,
+            ArchivedLexType::Unknown => LexType::Unknown,
+        }
     }
 }
 
@@ -422,31 +477,61 @@ impl Dictionary {
 
     /// Creates a dictionary from a file path using memory-mapping for fast loading.
     ///
-    /// This function maps the dictionary file into memory and provides zero-copy access to it,
-    /// which is fast and memory-efficient. The loading behavior can be configured
+    /// This function maps a dictionary file into memory for zero-copy access, offering
+    /// high performance and memory efficiency. The loading behavior can be configured
     /// with the `mode` parameter to balance safety and performance.
+    ///
+    /// This function also transparently handles legacy (bincode-based) dictionaries
+    /// when the `legacy` feature is enabled, loading them into memory.
+    ///
+    /// | Mode | Validation | Writes Cache | Use Case |
+    /// |------|-------------|---------------|-----------|
+    /// | `Validate` | Full validation every time | ❌ | Maximum safety |
+    /// | `TrustCache` | Skips if proof file exists | ✅ | Fast reloads |
+    ///
+    ///
+    /// ## Caching Mechanism (`LoadMode::TrustCache`)
+    ///
+    /// To accelerate subsequent loads, this function uses a cache mechanism when `TrustCache`
+    /// mode is enabled. It generates a unique hash from the dictionary file's metadata
+    /// (e.g., size, modification time) and looks for a corresponding "proof file"
+    /// (e.g., `<hash>.sha256`) to prove the dictionary's validity without a full, slow check.
+    ///
+    /// The search for this proof file is performed in two locations:
+    /// 1.  **Local Cache**: In the same directory as the dictionary file itself. This allows
+    ///     for portable caches that can be moved along with the dictionary.
+    /// 2.  **Global Cache**: In a system-wide, user-specific cache directory
+    ///     (e.g., `~/.cache/vibrato-rkyv` on Linux).
+    ///
+    /// If a valid proof file is found in either location, the dictionary is loaded instantly
+    /// without further validation.
+    ///
+    /// If no proof file is found, the function performs a full validation. If successful,
+    /// it **creates a new proof file in the global cache directory** to speed up the next load.
+    /// This ensures that even dictionaries in read-only locations can benefit from caching.
     ///
     /// # Arguments
     ///
-    /// - `path` - A path to the compiled dictionary file.
+    /// - `path` - A path to the dictionary file.
     /// - `mode` - A [`LoadMode`] that specifies the validation strategy:
     ///   - `LoadMode::Validate`: Performs a full validation of the dictionary data on
-    ///     every load. This is the safest mode and does **not** write a hash cache file.
-    ///     Use this mode if you need to guarantee validation on every single run or if you
-    ///     are in an environment where writing cache files is undesirable (e.g., read-only
-    ///     filesystems).
-    ///   - `LoadMode::TrustCache`: Attempts a faster load by skipping full validation if a
-    ///     valid cache file is found. It checks if a `.sha256` file exists and matches the
-    ///     current dictionary file. If it matches, the dictionary is loaded without validation.
-    ///     If the hash file is missing, mismatched, or the dictionary is invalid, this mode
-    ///     falls back to performing a full validation. Upon successful validation in this
-    ///     fallback case, it **creates or updates** the `.sha256` hash file to accelerate
-    ///     subsequent loads.
+    ///     every load. This is the safest mode and **never writes cache files**.
+    ///     Use this for maximum safety or in environments where file writes are prohibited.
+    ///   - `LoadMode::TrustCache`: Enables the caching mechanism described above. It attempts
+    ///     a fast, unchecked load if a valid proof file is found. If not, it falls back to
+    ///     a full validation and then **creates a proof file in the global cache** on success.
+    ///     **Warning: This mode trusts file metadata for validation to achieve high performance.
+    ///     It is vulnerable to time-of-check to time-of-use (TOCTOU) attacks if the dictionary
+    ///     file can be replaced by a malicious actor. Use `LoadMode::Validate` in environments
+    ///     where file integrity cannot be guaranteed.**
     ///
     /// # Errors
     ///
-    /// Returns an error if the file cannot be opened, is corrupted,
-    /// or was created with an incompatible version of vibrato.
+    /// Returns an error if:
+    /// - The file cannot be opened or read.
+    /// - The file is corrupted, has an invalid format, or has a mismatched magic number.
+    /// - The file was created with an incompatible version of vibrato.
+    /// - (`legacy` feature disabled) A legacy bincode-based dictionary is provided.
     pub fn from_path<P: AsRef<std::path::Path>>(path: P, mode: LoadMode) -> Result<Self> {
         let path = path.as_ref();
         let mut file = File::open(path).map_err(|e| {
@@ -466,7 +551,6 @@ impl Dictionary {
             #[cfg(feature = "legacy")]
             {
                 use std::io::Seek;
-
                 use crate::legacy;
 
                 file.seek(io::SeekFrom::Start(0))?;
@@ -497,13 +581,29 @@ impl Dictionary {
             ));
         };
 
-        let hash_path = path.with_added_extension("sha256");
         let current_hash = compute_metadata_hash(meta);
+        let hash_name = format!("{}.sha256", current_hash);
+        let hash_path = path.parent().unwrap().join(".cache").join(&hash_name);
 
         if mode == LoadMode::TrustCache
-            && hash_path.exists()
-            && let Ok(cached_hash) = fs::read_to_string(&hash_path)
-            && current_hash == cached_hash {
+            && hash_path.exists() {
+                let archived = unsafe { access_unchecked::<ArchivedDictionaryInner>(data_bytes) };
+                let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
+                return {
+                    Ok(
+                        Dictionary::Archived(ArchivedDictionary { _buffer: DictBuffer::Mmap(mmap), data })
+                    )
+                };
+            }
+
+        let global_cache_dir = GLOBAL_CACHE_DIR.as_ref().ok_or_else(|| {
+            VibratoError::invalid_state("Could not determine system cache directory.", "")
+        })?;
+
+        let hash_path = global_cache_dir.join(&hash_name);
+
+        if mode == LoadMode::TrustCache
+            && hash_path.exists() {
                 let archived = unsafe { access_unchecked::<ArchivedDictionaryInner>(data_bytes) };
                 let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
                 return {
@@ -516,7 +616,8 @@ impl Dictionary {
         match access::<ArchivedDictionaryInner, Error>(data_bytes) {
             Ok(archived) => {
                 if mode == LoadMode::TrustCache {
-                    fs::write(&hash_path, current_hash)?;
+                    create_dir_all(global_cache_dir)?;
+                    File::create_new(hash_path)?;
                 }
 
                 let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
@@ -640,55 +741,56 @@ impl Dictionary {
         )
     }
 
-    /// Loads a dictionary from a Zstandard-compressed file, with automatic caching.
+    /// Loads a dictionary from a Zstandard-compressed file using a specified caching strategy.
     ///
-    /// This is the recommended way to load a dictionary for most use cases.
-    ///
-    /// On the first run, this function decompresses the dictionary to a `decompressed`
-    /// subdirectory next to the compressed file. Subsequent runs will load the
-    /// decompressed cache directly using highly efficient memory mapping, achieving
-    /// near-instant startup times.
-    ///
-    /// The cache is automatically invalidated and regenerated if the original
-    /// compressed file is modified.
-    ///
-    /// For more control over caching behavior, see [`from_zstd_with_options`].
+    /// This function provides a user-friendly interface for the most common caching scenarios.
+    /// For more fine-grained control, see [`from_zstd_with_options`].
     ///
     /// # Arguments
     ///
-    /// * `path` - A path to the Zstandard-compressed dictionary file (e.g., `system.dic.zst`).
+    /// * `path` - A path to the Zstandard-compressed dictionary file.
+    /// * `strategy` - The desired caching strategy, defined by the [`CacheStrategy`] enum.
+    #[cfg_attr(feature = "legacy", doc = r"
+    When the `legacy` feature is enabled, this function returns immediately while caching
+    happens in the background, providing a responsive user experience.")]
     ///
     /// # Errors
     ///
-    /// This function will return an error if:
-    /// - The `path` does not exist or is a directory.
-    /// - The file cannot be opened due to permission errors.
-    /// - The file is not a valid Zstandard-compressed stream.
-    /// - The cache directory cannot be created, and fallback to a global cache also fails.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use vibrato_rkyv::{Dictionary, errors::Result};
-    /// # fn main() -> Result<()> {
-    /// let dict = Dictionary::from_zstd("path/to/system.dic.zst")?;
-    /// // The dictionary is now ready to use.
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn from_zstd<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
+    /// Returns an error if the specified `cache_dir` (determined by the `strategy`)
+    /// cannot be created or written to, in addition to the errors from
+    /// [`from_zstd_with_options`].
+    pub fn from_zstd<P: AsRef<std::path::Path>>(path: P, strategy: CacheStrategy) -> Result<Self> {
         let path = path.as_ref();
 
-        let cache_dir = path
-            .parent()
-            // `from_zstd_with_options` checks whether path is a directory, so minimal options suffice.
-            .ok_or(VibratoError::PathIsDirectory(path.to_path_buf()))?
-            .join("decompressed");
+        let cache_dir = match strategy {
+            CacheStrategy::Local => {
+                let parent = path.parent().ok_or_else(|| {
+                    VibratoError::invalid_argument(
+                        "path",
+                        "Input path must have a parent directory for the Local cache strategy.",
+                    )
+                })?;
+                let local_cache = parent.join(".cache");
+                std::fs::create_dir_all(&local_cache)?;
+                local_cache
+            }
+            CacheStrategy::GlobalCache => {
+                let global_cache = GLOBAL_CACHE_DIR.as_ref().ok_or_else(|| {
+                    VibratoError::invalid_state("Could not determine system cache directory.", "")
+                })?;
+                global_cache.to_path_buf()
+            }
+            CacheStrategy::GlobalData => {
+                let local_data = GLOBAL_DATA_DIR.as_ref().ok_or_else(|| {
+                    VibratoError::invalid_state("Could not determine local data directory.", "")
+                })?;
+                local_data.to_path_buf()
+            }
+        };
 
         Self::from_zstd_with_options(
             path,
-            &cache_dir,
-            true,
+            cache_dir,
             #[cfg(feature = "legacy")]
             false,
         )
@@ -697,26 +799,39 @@ impl Dictionary {
     /// Loads a dictionary from a Zstandard-compressed file with configurable caching options.
     ///
     /// This is an advanced version of [`from_zstd`] that allows for fine-grained control
-    /// over the caching mechanism. It is useful in environments with specific directory
+    /// over the caching directory. It is useful in environments with specific directory
     /// structures or restrictive file system permissions.
+    ///
+    /// ## Caching Mechanism
+    ///
+    /// To avoid decompressing the file on every run, this function employs a cache mechanism.
+    /// It generates a unique hash from the metadata of the input `.zst` file (such as its
+    /// size and modification time). This hash is used as the filename for the decompressed
+    /// cache.
+    ///
+    /// On subsequent runs, if a cache file corresponding to the current metadata hash exists,
+    /// the decompression step is skipped entirely, enabling near-instantaneous loading.
+    /// If the `.zst` file is modified, its metadata hash will change, and a new cache will be
+    /// generated automatically.
     ///
     /// # Arguments
     ///
     /// * `path` - A path to the Zstandard-compressed dictionary file.
     /// * `cache_dir` - The directory where the decompressed dictionary cache will be stored.
-    /// * `allow_fallback` - If `true`, the function will attempt to use a global cache
-    ///   directory (e.g., `~/.cache/vibrato-rkyv`) as a fallback if creating `cache_dir`
-    ///   fails with a permission error.
-    #[cfg_attr(feature = "legacy", doc = r" * `await_caching` - (legacy feature only) If `true` and a legacy dictionary is provided,
-    the function will block until the conversion to the new format and caching are complete.
-    If `false` (the default for `from_zstd`), it returns immediately with the legacy dictionary loaded in memory,
-    while the conversion and caching process runs in a background thread. This is useful for tests or cache pre-warming scripts.")]
+    #[cfg_attr(feature = "legacy", doc = r" * `wait_for_cache` - (legacy feature only) If `true` and a legacy (bincode) dictionary is
+    provided, the function will block until the conversion to the new format and caching are complete.
+    If `false`, it returns immediately with a fully functional dictionary, while the caching
+    process runs in a background thread.")]
     ///
     /// # Errors
     ///
-    /// This function will return an error under the same conditions as `from_zstd`, but
-    /// the caching behavior depends on the `allow_fallback` flag.
-    #[cfg_attr(feature = "legacy", doc = r" - (legacy feature only) The background caching thread panics when `await_caching` is `true`.")]
+    /// This function will return an error if:
+    /// - The file specified by `path` cannot be opened or read (e.g., I/O errors).
+    /// - The file is not a valid Zstandard-compressed archive.
+    /// - The decompressed data is not a valid dictionary file (e.g., corrupted data or
+    ///   incorrect magic number).
+    /// - The cache directory specified by `cache_dir` cannot be created or written to.
+    #[cfg_attr(feature = "legacy", doc = r" - (legacy feature only) The background caching thread panics when `wait_for_cache` is `true`.")]
     ///
     /// # Examples
     ///
@@ -728,20 +843,22 @@ impl Dictionary {
     /// let dict = Dictionary::from_zstd_with_options(
     ///     "path/to/system.dic.zst",
     ///     "/tmp/my_app_cache",
-    ///     false, // Disable fallback to global cache
     #[cfg_attr(feature = "legacy", doc = r"true, // Wait for background cache generation to complete")]
     /// )?;
     /// # Ok(())
     /// # }
     /// ```
     #[inline(always)]
-    pub fn from_zstd_with_options<P: AsRef<std::path::Path>, Q: AsRef<std::path::Path>>(
+    pub fn from_zstd_with_options<P, Q>(
         path: P,
         cache_dir: Q,
-        allow_fallback: bool,
         #[cfg(feature = "legacy")]
         wait_for_cache: bool,
-    ) -> Result<Self> {
+    ) -> Result<Self>
+    where
+        P: AsRef<std::path::Path>,
+        Q: AsRef<std::path::Path>,
+    {
         let zstd_path = path.as_ref();
         let zstd_file = File::open(zstd_path)?;
         let meta = zstd_file.metadata()?;
@@ -749,46 +866,14 @@ impl Dictionary {
         let dict_hash = compute_metadata_hash(&meta);
         let decompressed_dir = cache_dir.as_ref().to_path_buf();
 
-        // `let file = File::open(zstd_path)?` is already guarantees that zstd_path is a File.
-        let zstd_file_name_os_str = zstd_path.file_name().unwrap();
-        let zstd_file_name = zstd_file_name_os_str.to_string_lossy();
+        let decompressed_dict_path = decompressed_dir.join(format!("{}.dic", dict_hash));
 
-        let zstd_hash_path = decompressed_dir.join(format!("{}.sha256", zstd_file_name));
-        let decompressed_path = decompressed_dir.join(
-            zstd_path.file_stem().unwrap_or(zstd_file_name_os_str)
-        );
+        if decompressed_dict_path.exists() {
+            return Self::from_path(decompressed_dict_path, LoadMode::TrustCache);
+        }
 
-        if let Ok(compressed_dict_hash) = fs::read_to_string(&zstd_hash_path)
-            && compressed_dict_hash.trim() == dict_hash {
-                return Self::from_path(decompressed_path, LoadMode::TrustCache);
-            }
-
-        #[cfg(feature = "legacy")]
-        let transmuted_path = decompressed_path.with_added_extension("rkyv");
-        #[cfg(feature = "legacy")]
-        let rkyv_hash_path = decompressed_dir.join(format!("{}.rkyv.sha256", zstd_file_name));
-
-        #[cfg(feature = "legacy")]
-        if let Ok(compressed_dict_hash) = fs::read_to_string(&rkyv_hash_path)
-            && compressed_dict_hash.trim() == dict_hash {
-                return Self::from_path(transmuted_path, LoadMode::TrustCache);
-            }
-
-        if let Err(e) = fs::create_dir_all(&decompressed_dir) {
-            if e.kind() == ErrorKind::PermissionDenied && allow_fallback && let Some(mut decompressed_dir) = dirs::cache_dir() {
-                decompressed_dir.push("vibrato-rkyv/decompressed");
-                let zstd_hash_path = decompressed_dir.join(format!("{}.sha256", zstd_file_name));
-                let decompressed_path = decompressed_dir.join(
-                    zstd_path.file_stem().unwrap_or(zstd_file_name_os_str)
-                );
-
-                if let Ok(compressed_dict_hash) = fs::read_to_string(&zstd_hash_path)
-                    && compressed_dict_hash.trim() == dict_hash {
-                        return Self::from_path(decompressed_path, LoadMode::TrustCache);
-                    }
-            } else {
-                Err(e)?;
-            }
+        if !decompressed_dir.exists() {
+            create_dir_all(&decompressed_dir)?;
         }
 
         let mut temp_file = tempfile::NamedTempFile::new_in(&decompressed_dir)?;
@@ -799,21 +884,16 @@ impl Dictionary {
             io::copy(&mut decoder, &mut temp_file)?;
             temp_file.as_file().sync_all()?;
         }
+        temp_file.seek(SeekFrom::Start(0))?;
 
-        let _ = fs::remove_file(&decompressed_path);
-
-        let mut dict_file = temp_file.persist(&decompressed_path)?;
+        let mut magic = [0; MODEL_MAGIC_LEN];
+        temp_file.read_exact(&mut magic)?;
 
         #[cfg(feature = "legacy")]
         'l: {
-            use std::{io::{Seek, SeekFrom}, thread};
+            use std::thread;
 
             use crate::legacy;
-
-            dict_file.seek(SeekFrom::Start(0))?;
-
-            let mut magic = [0; MODEL_MAGIC_LEN];
-            dict_file.read_exact(&mut magic)?;
 
             if !magic.starts_with(LEGACY_MODEL_MAGIC_PREFIX) {
                 break 'l;
@@ -836,9 +916,13 @@ impl Dictionary {
 
                 dict_for_cache.write(&mut temp_file)?;
 
-                temp_file.persist(&transmuted_path)?;
+                temp_file.persist(&decompressed_dict_path)?;
 
-                fs::write(&rkyv_hash_path, dict_hash)?;
+                let dict_file = File::open(decompressed_dict_path)?;
+                let decompressed_dict_hash = compute_metadata_hash(&dict_file.metadata()?);
+                let decompressed_dict_hash_path = decompressed_dir.join(format!("{}.sha256", decompressed_dict_hash));
+
+                File::create_new(decompressed_dict_hash_path)?;
 
                 Ok(())
             });
@@ -863,18 +947,49 @@ impl Dictionary {
             return Ok(Self::Owned { dict, _caching_handle });
         }
 
-        let mmap = unsafe { Mmap::map(&dict_file)? };
+        if magic.starts_with(LEGACY_MODEL_MAGIC_PREFIX) {
+            return Err(VibratoError::invalid_argument(
+                "path",
+                "This appears to be a legacy bincode-based dictionary file. Please use a dictionary compiled for the rkyv version of vibrato.",
+            ));
+        } else if !magic.starts_with(MODEL_MAGIC) {
+            return Err(VibratoError::invalid_argument(
+                "path",
+                "The magic number of the input model mismatches.",
+            ));
+        }
 
-        rkyv::access::<ArchivedDictionaryInner, Error>(&mmap[DATA_START..]).map_err(|e| {
+        temp_file.seek(SeekFrom::Start(0))?;
+
+        let mut data_bytes = Vec::new();
+        temp_file.as_file_mut().read_to_end(&mut data_bytes)?;
+
+        let mut aligned_bytes: AlignedVec = AlignedVec::with_capacity(data_bytes.len());
+        aligned_bytes.extend_from_slice(&data_bytes);
+
+        let Some(data_bytes) = &aligned_bytes.get(DATA_START..) else {
+            return Err(VibratoError::invalid_argument(
+                "path",
+                "Dictionary file too small or corrupted.",
+            ));
+        };
+
+        let _ = access::<ArchivedDictionaryInner, Error>(data_bytes).map_err(|e| {
             VibratoError::invalid_state(
-                "Decompressed dictionary is invalid. The original .zst file may be corrupted.",
+                "rkyv validation failed. The dictionary file may be corrupted or incompatible."
+                    .to_string(),
                 e.to_string(),
             )
         })?;
 
-        fs::write(&zstd_hash_path, dict_hash)?;
+        temp_file.persist(&decompressed_dict_path)?;
 
-        unsafe { Self::from_path_unchecked(decompressed_path) }
+        let decompressed_dict_hash = compute_metadata_hash(&File::open(&decompressed_dict_path)?.metadata()?);
+        let decompressed_dict_hash_path = decompressed_dir.join(format!("{}.sha256", decompressed_dict_hash));
+
+        File::create_new(decompressed_dict_hash_path)?;
+
+        Self::from_path(decompressed_dict_path, LoadMode::TrustCache)
     }
 
     /// Creates a [`Dictionary`] instance from a reader for a legacy
@@ -946,9 +1061,9 @@ impl Dictionary {
     /// ```
     #[cfg(feature = "download")]
     pub fn from_preset_with_download<P: AsRef<Path>>(kind: PresetDictionaryKind, dir: P) -> Result<Self> {
-        let dict_path = fetch::download_dictionary(kind, dir)?;
+        let dict_path = fetch::download_dictionary(kind, dir.as_ref())?;
 
-        Self::from_zstd(dict_path)
+        Self::from_zstd_with_options(dict_path, dir, true)
     }
 
     /// Downloads a preset dictionary file and returns the path to it.
@@ -976,7 +1091,7 @@ impl Dictionary {
     ///
     /// ```no_run
     /// # use std::path::Path;
-    /// # use vibrato_rkyv::{Dictionary, dictionary::PresetDictionaryKind};
+    /// # use vibrato_rkyv::{Dictionary, dictionary::PresetDictionaryKind, CacheStrategy};
     /// # let dir = Path::new("./cache_dir");
     /// let dict_path = Dictionary::download_dictionary(
     ///     PresetDictionaryKind::Unidic,
@@ -985,11 +1100,91 @@ impl Dictionary {
     ///
     /// println!("Dictionary downloaded to: {:?}", dict_path);
     ///
-    /// let dictionary = Dictionary::from_zstd(dict_path).unwrap();
+    /// let dictionary = Dictionary::from_zstd(dict_path, CacheStrategy::Local).unwrap();
     /// ```
     #[cfg(feature = "download")]
     pub fn download_dictionary<P: AsRef<Path>>(kind: PresetDictionaryKind, dir: P) -> Result<std::path::PathBuf> {
         Ok(fetch::download_dictionary(kind, dir)?)
+    }
+
+    /// Decompresses a Zstandard-compressed dictionary to a specified path.
+    ///
+    /// This function reads a `.zst` compressed dictionary, validates its contents,
+    /// and writes the decompressed dictionary to the `output_path`.
+    ///
+    /// This is a lower-level utility useful for application setup, testing,
+    /// or custom cache management.
+    ///
+    /// # Arguments
+    ///
+    /// * `input_path` - Path to the Zstandard-compressed dictionary file.
+    /// * `output_path` - Path where the decompressed dictionary will be saved.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the input file cannot be read, is not a valid Zstandard
+    /// archive, the decompressed data is not a valid dictionary, or the output
+    /// path cannot be written to.
+    pub fn decompress_zstd<P, Q>(input_path: P, output_path: Q) -> Result<()>
+    where
+        P: AsRef<Path>,
+        Q: AsRef<Path>,
+    {
+        let input_path = input_path.as_ref();
+        let output_path = output_path.as_ref();
+
+        let output_dir = output_path.parent().ok_or_else(|| {
+            VibratoError::invalid_argument("output_path", "Output path must have a parent directory.")
+        })?;
+        std::fs::create_dir_all(output_dir)?;
+
+        let zstd_file = File::open(input_path)?;
+        let mut temp_file = tempfile::NamedTempFile::new_in(output_dir)?;
+
+        let mut decoder = zstd::Decoder::new(zstd_file)?;
+        io::copy(&mut decoder, &mut temp_file)?;
+
+        temp_file.seek(SeekFrom::Start(0))?;
+        let mut magic = [0; MODEL_MAGIC_LEN];
+        temp_file.read_exact(&mut magic)?;
+
+        if magic.starts_with(LEGACY_MODEL_MAGIC_PREFIX) {
+            return Err(VibratoError::invalid_argument(
+                "path",
+                "This appears to be a legacy bincode-based dictionary file. Please use a dictionary compiled for the rkyv version of vibrato.",
+            ));
+        } else if !magic.starts_with(MODEL_MAGIC) {
+            return Err(VibratoError::invalid_argument(
+                "path",
+                "The magic number of the input model mismatches.",
+            ));
+        }
+
+        temp_file.seek(SeekFrom::Start(0))?;
+        let mut data_bytes = Vec::new();
+        temp_file.as_file_mut().read_to_end(&mut data_bytes)?;
+
+        let mut aligned_bytes: AlignedVec = AlignedVec::with_capacity(data_bytes.len());
+        aligned_bytes.extend_from_slice(&data_bytes);
+
+        let Some(data_bytes) = &aligned_bytes.get(DATA_START..) else {
+            return Err(VibratoError::invalid_argument(
+                "path",
+                "Dictionary file too small or corrupted.",
+            ));
+        };
+
+        let _ = access::<ArchivedDictionaryInner, Error>(data_bytes).map_err(|e| {
+            VibratoError::invalid_state(
+                "rkyv validation failed. The dictionary file may be corrupted or incompatible."
+                    .to_string(),
+                e.to_string(),
+            )
+        })?;
+
+        temp_file.persist(output_path)?;
+
+        Ok(())
     }
 }
 

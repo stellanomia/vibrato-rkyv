@@ -2,7 +2,7 @@ use std::fs;
 use std::{error::Error, path::PathBuf};
 use std::path::Path;
 
-use vibrato_rkyv::{Dictionary, LoadMode, Tokenizer};
+use vibrato_rkyv::{CacheStrategy, Dictionary, LoadMode, Tokenizer};
 
 /// This example demonstrates how to load a local dictionary file using
 /// different `LoadMode`s: `Validate` for guaranteed safety, and `TrustCache`
@@ -67,7 +67,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // It automatically handles decompression and caching to a `decompressed`
     // subdirectory next to the source file.
     println!("\n1. Loading with `from_zstd`");
-    let _dict_zstd = Dictionary::from_zstd(ZSTD_DICT_PATH)?;
+    let _dict_zstd = Dictionary::from_zstd(ZSTD_DICT_PATH, CacheStrategy::GlobalCache)?;
     println!("Dictionary loaded from '{}'. Check for a 'decompressed' directory nearby.", ZSTD_DICT_PATH);
 
     // (Tokenization is the same for all, so we'll show it once at the end)
@@ -83,7 +83,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // that we can then use for the `from_path` examples.
     println!("\n2. Setting up for `from_path` using `from_zstd_with_options`");
     let setup_cache_dir = PathBuf::from("./manual_load_cache");
-    let _ = Dictionary::from_zstd_with_options(ZSTD_DICT_PATH, &setup_cache_dir, false, false)?;
+    let _ = Dictionary::from_zstd_with_options(ZSTD_DICT_PATH, &setup_cache_dir, false)?;
 
     // Now, we have the decompressed `.dic` file ready in our controlled location.
     let dic_path = setup_cache_dir.join(Path::new(ZSTD_DICT_PATH).file_stem().unwrap());
