@@ -1063,7 +1063,12 @@ impl Dictionary {
     pub fn from_preset_with_download<P: AsRef<Path>>(kind: PresetDictionaryKind, dir: P) -> Result<Self> {
         let dict_path = fetch::download_dictionary(kind, dir.as_ref())?;
 
-        Self::from_zstd_with_options(dict_path, dir, true)
+        Self::from_zstd_with_options(
+            dict_path,
+            dir,
+            #[cfg(feature = "legacy")]
+            true,
+        )
     }
 
     /// Downloads a preset dictionary file and returns the path to it.

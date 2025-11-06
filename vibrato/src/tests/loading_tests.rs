@@ -164,8 +164,10 @@ fn test_from_path_trustcache_flow() {
     let global_cache = GLOBAL_CACHE_DIR.as_ref().unwrap();
     assert!(global_cache.exists() && global_cache.read_dir().unwrap().next().is_some());
 
-    let dict_hit = Dictionary::from_path(&dic_path, LoadMode::TrustCache).unwrap();
-    assert!(matches!(dict_hit, Dictionary::Archived(_)));
+    {
+        let dict_hit = Dictionary::from_path(&dic_path, LoadMode::TrustCache).unwrap();
+        assert!(matches!(dict_hit, Dictionary::Archived(_)));
+    }
 
     fs::write(&dic_path, b"corrupted data").unwrap();
     let result_corrupted = Dictionary::from_path(&dic_path, LoadMode::TrustCache);
