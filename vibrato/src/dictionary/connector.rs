@@ -79,3 +79,23 @@ impl ConnectorView for ArchivedConnectorWrapper {
         }
     }
 }
+
+impl ConnectorCost for ConnectorWrapper {
+    fn cost(&self, right_id: u16, left_id: u16) -> i32 {
+        match self {
+            Self::Matrix(c) => c.cost(right_id, left_id),
+            Self::Raw(c) => c.cost(right_id, left_id),
+            Self::Dual(c) => c.cost(right_id, left_id),
+        }
+    }
+}
+
+impl ConnectorCost for ArchivedConnectorWrapper {
+    fn cost(&self, right_id: u16, left_id: u16) -> i32 {
+        match self {
+            Self::Matrix(c) => c.cost(right_id, left_id),
+            Self::Raw(c) => c.cost(right_id, left_id),
+            Self::Dual(c) => c.cost(right_id, left_id),
+        }
+    }
+}

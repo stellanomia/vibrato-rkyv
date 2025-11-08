@@ -1,11 +1,12 @@
 //! Provider of a routine for tokenization.
-use crate::dictionary::DictionaryInnerRef;
+use crate::dictionary::{ConnectorKindRef, DictionaryInnerRef};
 use crate::dictionary::connector::ConnectorView;
 use crate::dictionary::mapper::{ConnIdCounter, ConnIdProbs};
 use crate::sentence::Sentence;
-use crate::token::{Token, TokenIter};
-use crate::tokenizer::lattice::{Lattice, Node};
+use crate::token::{NbestTokenIter, Token, TokenIter};
+use crate::tokenizer::lattice::{Lattice, LatticeKind, Node};
 use crate::tokenizer::Tokenizer;
+use crate::tokenizer::nbest_generator::NbestGenerator;
 
 /// Provider of a routine for tokenization.
 ///
@@ -14,9 +15,10 @@ use crate::tokenizer::Tokenizer;
 pub struct Worker {
     pub(crate) tokenizer: Tokenizer,
     pub(crate) sent: Sentence,
-    pub(crate) lattice: Lattice,
+    pub(crate) lattice: LatticeKind,
     pub(crate) top_nodes: Vec<(usize, Node)>,
     pub(crate) counter: Option<ConnIdCounter>,
+    pub(crate) nbest_paths: Vec<(Vec<*const Node>, i32)>,
 }
 
 impl Worker {
@@ -25,9 +27,10 @@ impl Worker {
         Self {
             tokenizer,
             sent: Sentence::new(),
-            lattice: Lattice::default(),
+            lattice: LatticeKind::For1Best(Lattice::default()),
             top_nodes: vec![],
             counter: None,
+            nbest_paths: Vec::with_capacity(0),
         }
     }
 
@@ -58,8 +61,33 @@ impl Worker {
         if self.sent.chars().is_empty() {
             return;
         }
-        self.tokenizer.build_lattice(&self.sent, &mut self.lattice);
-        self.lattice.append_top_nodes(&mut self.top_nodes);
+        let lattice_1best = self.lattice.prepare_for_1best(self.sent.len_char());
+
+        self.tokenizer.build_lattice(&self.sent, lattice_1best);
+        lattice_1best.append_top_nodes(&mut self.top_nodes);
+    }
+
+    /// Tokenizes the sentence and stores the top N-best results internally.
+    ///
+    /// After calling this, the results can be accessed via `num_nbest_paths()`,
+    /// `path_cost(path_idx)`, and `nbest_token_iter(path_idx)`.
+    pub fn tokenize_nbest(&mut self, n: usize) {
+        self.nbest_paths.clear();
+        if self.sent.chars().is_empty() {
+            return;
+        }
+        let lattice_nbest = self.lattice.prepare_for_nbest(self.sent.len_char());
+
+        self.tokenizer.build_lattice_nbest(&self.sent, lattice_nbest);
+
+        let dict_ref = self.tokenizer.dictionary();
+        let connector_ref = dict_ref.connector();
+
+        let generator = match connector_ref {
+            ConnectorKindRef::Archived(connector) => NbestGenerator::new(lattice_nbest, connector, dict_ref),
+            ConnectorKindRef::Owned(connector) => NbestGenerator::new(lattice_nbest, connector, dict_ref),
+        };
+        self.nbest_paths = generator.take(n).collect();
     }
 
     /// Gets the number of resultant tokens.
@@ -79,6 +107,15 @@ impl Worker {
     #[inline(always)]
     pub const fn token_iter<'w>(&'w self) -> TokenIter<'w> {
         TokenIter::new(self, 0)
+    }
+
+    /// Returns an iterator over the tokens in the N-best path at `path_idx`.
+    pub fn nbest_token_iter(&self, path_idx: usize) -> Option<NbestTokenIter<'_>> {
+        if path_idx < self.nbest_paths.len() {
+            Some(NbestTokenIter::new(self, path_idx))
+        } else {
+            None
+        }
     }
 
     /// Initializes a counter to compute occurrence probabilities of connection ids.
@@ -101,8 +138,10 @@ impl Worker {
     ///
     /// It will panic when [`Self::init_connid_counter()`] has never been called.
     pub fn update_connid_counts(&mut self) {
-        self.lattice
-            .add_connid_counts(self.counter.as_mut().unwrap());
+        match &self.lattice {
+            LatticeKind::For1Best(lattice) => lattice.add_connid_counts(self.counter.as_mut().unwrap()),
+            LatticeKind::ForNBest(lattice_nbest) => lattice_nbest.add_connid_counts(self.counter.as_mut().unwrap()),
+        }
     }
 
     /// Computes the computed occurrence probabilities of connection ids,
@@ -113,5 +152,15 @@ impl Worker {
     /// It will panic when [`Self::init_connid_counter()`] has never been called.
     pub fn compute_connid_probs(&self) -> (ConnIdProbs, ConnIdProbs) {
         self.counter.as_ref().unwrap().compute_probs()
+    }
+
+    /// Returns the number of N-best paths found.
+    pub fn num_nbest_paths(&self) -> usize {
+        self.nbest_paths.len()
+    }
+
+    /// Returns the total cost of the path at `path_idx`.
+    pub fn path_cost(&self, path_idx: usize) -> Option<i32> {
+        self.nbest_paths.get(path_idx).map(|(_, cost)| *cost)
     }
 }

@@ -3,6 +3,7 @@ use std::ops::Range;
 
 use crate::dictionary::DictionaryInnerRef;
 use crate::dictionary::{word_idx::WordIdx, LexType};
+use crate::tokenizer::lattice::Node;
 use crate::tokenizer::worker::Worker;
 
 /// Resultant token.
@@ -101,6 +102,7 @@ impl<'w> Token<'w> {
             feature: self.feature().to_string(),
             range_char: self.range_char(),
             range_byte: self.range_byte(),
+            word_id: self.word_idx(),
             lex_type: self.lex_type(),
             left_id: self.left_id(),
             right_id: self.right_id(),
@@ -118,6 +120,147 @@ impl std::fmt::Debug for Token<'_> {
             .field("range_byte", &self.range_byte())
             .field("feature", &self.feature())
             .field("lex_type", &self.lex_type())
+            .field("word_id", &self.word_idx())
+            .field("left_id", &self.left_id())
+            .field("right_id", &self.right_id())
+            .field("word_cost", &self.word_cost())
+            .field("total_cost", &self.total_cost())
+            .finish()
+    }
+}
+
+/// A lightweight view of a token within an N-best path.
+///
+/// Similar to `Token`, this struct is a lightweight view that borrows the `Worker`.
+/// It is created by `NbestTokenIter`.
+pub struct NbestToken<'w> {
+    worker: &'w Worker,
+    path_idx: usize,
+    token_idx: usize,
+}
+
+impl<'w> NbestToken<'w> {
+    /// Gets a raw pointer to the underlying `Node` for this token.
+    #[inline(always)]
+    fn node_ptr(&self) -> *const Node {
+        // This relies on bounds checks performed in NbestTokenIter::new
+        // and NbestTokenIter::next, so it should be safe within the iterator context.
+        self.worker.nbest_paths[self.path_idx].0[self.token_idx]
+    }
+
+    /// Gets a safe reference to the underlying `Node`.
+    #[inline(always)]
+    fn node(&self) -> &'w Node {
+        unsafe { &*self.node_ptr() }
+    }
+
+    /// Gets the end position (in characters) of this token.
+    #[inline(always)]
+    fn end_word(&self) -> usize {
+        let path = &self.worker.nbest_paths[self.path_idx].0;
+        if self.token_idx + 1 < path.len() {
+            // If there is a next token, its start position is our end position.
+            unsafe { (*path[self.token_idx + 1]).start_word }
+        } else {
+            // If this is the last token in the path, the sentence end is our end.
+            self.worker.sent.len_char()
+        }
+    }
+
+    /// Gets the surface string of the token.
+    #[inline(always)]
+    pub fn surface(&self) -> &'w str {
+        &self.worker.sent.raw()[self.range_byte()]
+    }
+
+    /// Gets the feature string of the token.
+    #[inline(always)]
+    pub fn feature(&self) -> &'w str {
+        match self.worker.tokenizer.dictionary() {
+            DictionaryInnerRef::Archived(dict) => dict
+                .word_feature(self.word_idx()),
+            DictionaryInnerRef::Owned(dict) => dict
+                .word_feature(self.word_idx()),
+        }
+    }
+
+    /// Gets the position range of the token in characters.
+    #[inline(always)]
+    pub fn range_char(&self) -> Range<usize> {
+        self.node().start_word..self.end_word()
+    }
+
+    /// Gets the position range of the token in bytes.
+    #[inline(always)]
+    pub fn range_byte(&self) -> Range<usize> {
+        let sent = &self.worker.sent;
+        sent.byte_position(self.node().start_word)..sent.byte_position(self.end_word())
+    }
+
+    /// Gets the word index of the token.
+    #[inline(always)]
+    pub fn word_idx(&self) -> WordIdx {
+        self.node().word_idx()
+    }
+
+    /// Gets the lexicon type where the token is from.
+    #[inline(always)]
+    pub fn lex_type(&self) -> LexType {
+        self.word_idx().lex_type
+    }
+
+    /// Gets the left connection ID of the token's node.
+    #[inline(always)]
+    pub fn left_id(&self) -> u16 {
+        self.node().left_id
+    }
+
+    /// Gets the right connection ID of the token's node.
+    #[inline(always)]
+    pub fn right_id(&self) -> u16 {
+        self.node().right_id
+    }
+
+    /// Gets the word cost of the token's node.
+    #[inline(always)]
+    pub fn word_cost(&self) -> i16 {
+        let dict = self.worker.tokenizer.dictionary();
+        dict.word_param(self.word_idx()).word_cost
+    }
+
+    /// Gets the total cost from the beginning of the sentence (BOS)
+    /// to this token's node, calculated during the forward Viterbi pass.
+    #[inline(always)]
+    pub fn total_cost(&self) -> i32 {
+        self.node().min_cost
+    }
+
+    /// Converts this token view into an owned `TokenBuf`.
+    pub fn to_buf(&self) -> TokenBuf {
+        TokenBuf {
+            surface: self.surface().to_string(),
+            feature: self.feature().to_string(),
+            word_id: self.word_idx(),
+            lex_type: self.lex_type(),
+            range_char: self.range_char(),
+            range_byte: self.range_byte(),
+            left_id: self.left_id(),
+            right_id: self.right_id(),
+            word_cost: self.word_cost(),
+            total_cost: self.total_cost(),
+        }
+    }
+}
+
+impl std::fmt::Debug for NbestToken<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NbestToken")
+            .field("surface", &self.surface())
+            .field("range_char", &self.range_char())
+            .field("range_byte", &self.range_byte())
+            .field("feature", &self.feature())
+            .field("lex_type", &self.lex_type())
+            .field("word_id", &self.word_idx())
             .field("left_id", &self.left_id())
             .field("right_id", &self.right_id())
             .field("word_cost", &self.word_cost())
@@ -154,6 +297,37 @@ impl<'w> Iterator for TokenIter<'w> {
     }
 }
 
+/// An iterator over tokens in a specific N-best path.
+pub struct NbestTokenIter<'w> {
+    worker: &'w Worker,
+    path_idx: usize,
+    current_token_idx: usize,
+}
+
+impl<'w> NbestTokenIter<'w> {
+    pub(crate) fn new(worker: &'w Worker, path_idx: usize) -> Self {
+        Self { worker, path_idx, current_token_idx: 0 }
+    }
+}
+
+impl<'w> Iterator for NbestTokenIter<'w> {
+    type Item = NbestToken<'w>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_token_idx < self.worker.nbest_paths[self.path_idx].0.len() {
+            let token = NbestToken {
+                worker: self.worker,
+                path_idx: self.path_idx,
+                token_idx: self.current_token_idx,
+            };
+            self.current_token_idx += 1;
+            Some(token)
+        } else {
+            None
+        }
+    }
+}
+
 /// An owned, self-contained token.
 ///
 /// This struct is the owned counterpart to [`Token`].
@@ -166,6 +340,7 @@ pub struct TokenBuf {
     pub range_char: Range<usize>,
     pub range_byte: Range<usize>,
     pub lex_type: LexType,
+    pub word_id: WordIdx,
     pub left_id: u16,
     pub right_id: u16,
     pub word_cost: i16,

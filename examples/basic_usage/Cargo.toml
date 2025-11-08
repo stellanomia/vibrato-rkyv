@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 dirs = "6.0.0"
-vibrato-rkyv = { path = "../../vibrato" }
+vibrato-rkyv = { path = "../../vibrato", features = ["legacy"] }
 
 [[bin]]
 name = "basic_usage"

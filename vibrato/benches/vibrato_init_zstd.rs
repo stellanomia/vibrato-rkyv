@@ -55,7 +55,7 @@ fn drop_caches() {
 fn bench_vibrato_dictionary_load(c: &mut Criterion) {
     let cache_dir = dirs::cache_dir()
         .expect("Failed to get cache directory")
-        .join("vibrato-rkyv/vibrato");
+        .join("vibrato-rkyv-assets/vibrato");
 
     let compressed_dict_path = prepare_vibrato_dictionary(&cache_dir)
         .expect("Failed to prepare vibrato dictionary.");

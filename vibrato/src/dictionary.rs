@@ -154,6 +154,11 @@ pub(crate) enum DictionaryInnerRef<'a> {
     Owned(&'a DictionaryInner),
 }
 
+pub(crate) enum ConnectorKindRef<'a> {
+    Archived(&'a ArchivedConnectorWrapper),
+    Owned(&'a ConnectorWrapper),
+}
+
 impl Deref for ArchivedDictionary {
     type Target = ArchivedDictionaryInner;
     fn deref(&self) -> &Self::Target {
@@ -1255,6 +1260,28 @@ pub(crate) fn compute_metadata_hash(meta: &Metadata) -> String {
     }
 
     hex::encode(hasher.finalize())
+}
+
+impl<'a> DictionaryInnerRef<'a> {
+    #[inline(always)]
+    pub fn connector(&self) -> ConnectorKindRef<'a> {
+        match self {
+            DictionaryInnerRef::Archived(archived) => ConnectorKindRef::Archived(archived.connector()),
+            DictionaryInnerRef::Owned(owned) => ConnectorKindRef::Owned(owned.connector()),
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn word_param(&self, word_idx: WordIdx) -> WordParam {
+        match self {
+            DictionaryInnerRef::Archived(archived_dict) => {
+                archived_dict.word_param(word_idx)
+            },
+            DictionaryInnerRef::Owned(dict) => {
+                dict.word_param(word_idx)
+            },
+        }
+    }
 }
 
 impl ArchivedDictionaryInner {

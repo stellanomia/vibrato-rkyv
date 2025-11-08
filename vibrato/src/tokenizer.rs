@@ -1,5 +1,6 @@
 //! Viterbi-based tokenizer.
 pub(crate) mod lattice;
+mod nbest_generator;
 pub mod worker;
 
 use std::sync::Arc;
@@ -9,7 +10,7 @@ use crate::dictionary::connector::{ArchivedConnectorWrapper, ConnectorCost, Conn
 use crate::dictionary::{ArchivedDictionaryInner, DictionaryInner, DictionaryInnerRef};
 use crate::errors::{Result, VibratoError};
 use crate::sentence::Sentence;
-use crate::tokenizer::lattice::Lattice;
+use crate::tokenizer::lattice::{Lattice, LatticeNBest};
 use crate::tokenizer::worker::Worker;
 
 /// Tokenizer.
@@ -135,6 +136,21 @@ impl Tokenizer {
         }
     }
 
+    pub(crate) fn build_lattice_nbest(&self, sent: &Sentence, lattice: &mut LatticeNBest) {
+        match &*self.dict {
+            Dictionary::Archived(archived_dict) => match archived_dict.connector() {
+                ArchivedConnectorWrapper::Matrix(c) => self.build_lattice_inner_nbest(sent, lattice, c),
+                ArchivedConnectorWrapper::Raw(c) => self.build_lattice_inner_nbest(sent, lattice, c),
+                ArchivedConnectorWrapper::Dual(c) => self.build_lattice_inner_nbest(sent, lattice, c),
+            },
+            Dictionary::Owned{ dict, .. } => match dict.connector() {
+                ConnectorWrapper::Matrix(c) => self.build_lattice_inner_nbest(sent, lattice, c),
+                ConnectorWrapper::Raw(c) => self.build_lattice_inner_nbest(sent, lattice, c),
+                ConnectorWrapper::Dual(c) => self.build_lattice_inner_nbest(sent, lattice, c),
+            },
+        }
+    }
+
     fn build_lattice_inner<C>(&self, sent: &Sentence, lattice: &mut Lattice, connector: &C)
     where
         C: ConnectorCost,
@@ -174,6 +190,53 @@ impl Tokenizer {
             }
 
             self.add_lattice_edges(sent, lattice, start_node, start_word, connector);
+
+            start_word += 1;
+            start_node = start_word;
+        }
+
+        lattice.insert_eos(start_node, connector);
+    }
+
+    fn build_lattice_inner_nbest<C>(&self, sent: &Sentence, lattice: &mut LatticeNBest, connector: &C)
+    where
+        C: ConnectorCost,
+    {
+        lattice.reset(sent.len_char());
+
+        // These variables indicate the starting character positions of words currently stored
+        // in the lattice. If ignore_space() is unset, these always have the same values, and
+        // start_node is practically non-functional. If ignore_space() is set, start_node and
+        // start_word indicate the starting positions containing and ignoring a space character,
+        // respectively. Suppose handle sentence "mens second" at position 4. start_node indicates
+        // position 4, and start_word indicates position 5.
+        let mut start_node = 0;
+        let mut start_word = 0;
+
+        while start_word < sent.len_char() {
+            if !lattice.has_previous_node(start_node) {
+                start_word += 1;
+                start_node = start_word;
+                continue;
+            }
+
+            // on mecab compatible mode
+            if let Some(space_cateset) = self.space_cateset {
+                let is_space = (sent.char_info(start_node).cate_idset() & space_cateset) != 0;
+                start_word += if !is_space {
+                    0
+                } else {
+                    // Skips space characters.
+                    sent.groupable(start_node)
+                };
+            }
+
+            // Does the input end with spaces?
+            if start_word == sent.len_char() {
+                break;
+            }
+
+            self.add_lattice_edges_nbest(sent, lattice, start_node, start_word, connector);
 
             start_word += 1;
             start_node = start_word;
@@ -265,6 +328,26 @@ impl Tokenizer {
         }
     }
 
+    fn add_lattice_edges_nbest<C>(
+        &self,
+        sent: &Sentence,
+        lattice: &mut LatticeNBest,
+        start_node: usize,
+        start_word: usize,
+        connector: &C,
+    ) where
+        C: ConnectorCost,
+    {
+        match self.dictionary() {
+            DictionaryInnerRef::Archived(dict) => {
+                self.add_lattice_edges_archived_nbest(sent, lattice, start_node, start_word, connector, dict)
+            }
+            DictionaryInnerRef::Owned(dict) => {
+                self.add_lattice_edges_owned_nbest(sent, lattice, start_node, start_word, connector, dict)
+            }
+        }
+    }
+
     fn add_lattice_edges_archived<C>(
         &self,
         sent: &Sentence,
@@ -291,6 +374,50 @@ impl Tokenizer {
         &self,
         sent: &Sentence,
         lattice: &mut Lattice,
+        start_node: usize,
+        start_word: usize,
+        connector: &C,
+        dict: &DictionaryInner,
+    ) where
+        C: ConnectorCost,
+    {
+        add_lattice_edges_logic!(
+            self,
+            sent,
+            lattice,
+            start_node,
+            start_word,
+            connector,
+            dict,
+        )
+    }
+
+    fn add_lattice_edges_archived_nbest<C>(
+        &self,
+        sent: &Sentence,
+        lattice: &mut LatticeNBest,
+        start_node: usize,
+        start_word: usize,
+        connector: &C,
+        dict: &ArchivedDictionaryInner,
+    ) where
+        C: ConnectorCost,
+    {
+        add_lattice_edges_logic!(
+            self,
+            sent,
+            lattice,
+            start_node,
+            start_word,
+            connector,
+            dict,
+        )
+    }
+
+    fn add_lattice_edges_owned_nbest<C>(
+        &self,
+        sent: &Sentence,
+        lattice: &mut LatticeNBest,
         start_node: usize,
         start_word: usize,
         connector: &C,
@@ -483,5 +610,101 @@ mod tests {
         worker.reset_sentence("");
         worker.tokenize();
         assert_eq!(worker.num_tokens(), 0);
+    }
+
+    #[test]
+    fn test_tokenize_nbest() {
+        let lexicon_csv = "自然,0,0,1,sizen
+言語,0,0,4,gengo
+処理,0,0,3,shori
+自然言語,0,0,6,sizengengo
+言語処理,0,0,5,gengoshori";
+        let matrix_def = "1 1\n0 0 0";
+        let char_def = "DEFAULT 0 1 0";
+        let unk_def = "DEFAULT,0,0,100,*";
+
+        let dict = build_test_dictionary(
+            lexicon_csv.as_bytes(),
+            matrix_def.as_bytes(),
+            char_def.as_bytes(),
+            unk_def.as_bytes(),
+        );
+
+        let tokenizer = Tokenizer::new(dict);
+        let mut worker = tokenizer.new_worker();
+
+        worker.reset_sentence("自然言語処理");
+        worker.tokenize_nbest(5);
+
+        assert_eq!(worker.num_nbest_paths(), 3, "Should find 3 possible paths");
+
+        // 自然 | 言語処理
+        // Cost = C(自然) + C(言語処理) = 1 + 5 = 6
+        {
+            let path_idx = 0;
+            assert_eq!(worker.path_cost(path_idx), Some(6));
+            let mut tokens = worker.nbest_token_iter(path_idx).unwrap();
+
+            let token1 = tokens.next().unwrap();
+            assert_eq!(token1.surface(), "自然");
+            assert_eq!(token1.feature(), "sizen");
+
+            let token2 = tokens.next().unwrap();
+            assert_eq!(token2.surface(), "言語処理");
+            assert_eq!(token2.feature(), "gengoshori");
+
+            assert!(tokens.next().is_none(), "Path 1 should have only 2 tokens");
+        }
+
+        // 自然 | 言語 | 処理
+        // Cost = C(自然) + C(言語) + C(処理) = 1 + 4 + 3 = 8
+        {
+            let path_idx = 1;
+            assert_eq!(worker.path_cost(path_idx), Some(8));
+            let mut tokens = worker.nbest_token_iter(path_idx).unwrap();
+
+            let token1 = tokens.next().unwrap();
+            assert_eq!(token1.surface(), "自然");
+
+            let token2 = tokens.next().unwrap();
+            assert_eq!(token2.surface(), "言語");
+
+            let token3 = tokens.next().unwrap();
+            assert_eq!(token3.surface(), "処理");
+
+            assert!(tokens.next().is_none(), "Path 2 should have 3 tokens");
+        }
+
+        // 自然言語 | 処理
+        // Cost = C(自然言語) + C(処理) = 6 + 3 = 9
+        {
+            let path_idx = 2;
+            assert_eq!(worker.path_cost(path_idx), Some(9));
+            let mut tokens = worker.nbest_token_iter(path_idx).unwrap();
+
+            let token1 = tokens.next().unwrap();
+            assert_eq!(token1.surface(), "自然言語");
+            assert_eq!(token1.feature(), "sizengengo");
+
+            let token2 = tokens.next().unwrap();
+            assert_eq!(token2.surface(), "処理");
+            assert_eq!(token2.feature(), "shori");
+
+            assert!(tokens.next().is_none(), "Path 3 should have only 2 tokens");
+        }
+
+        // Empty string
+        worker.reset_sentence("");
+        worker.tokenize_nbest(5);
+        assert_eq!(worker.num_nbest_paths(), 0, "N-best for empty string should be empty");
+
+        // No ambiguity
+        worker.reset_sentence("言語");
+        worker.tokenize_nbest(5);
+        assert_eq!(worker.num_nbest_paths(), 1, "Should find only 1 path for unambiguous input");
+        assert_eq!(worker.path_cost(0), Some(4));
+        let mut tokens = worker.nbest_token_iter(0).unwrap();
+        assert_eq!(tokens.next().unwrap().surface(), "言語");
+        assert!(tokens.next().is_none());
     }
 }

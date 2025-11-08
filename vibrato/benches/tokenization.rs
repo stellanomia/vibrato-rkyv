@@ -69,7 +69,7 @@ fn benchmark_preset(
 fn bench_all_presets(c: &mut Criterion) {
     let cache_dir = dirs::cache_dir()
         .expect("Failed to get cache directory")
-        .join("vibrato-rkyv");
+        .join("vibrato-rkyv-assets");
 
     let lines: &[&str] = &CORPUS.lines().collect::<Vec<&str>>();
 

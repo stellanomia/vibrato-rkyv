@@ -110,6 +110,9 @@ Beyond the core change to `rkyv` for faster loading, `vibrato-rkyv` includes sev
   * `Dictionary::from_preset_with_download()`: Handles downloading, checksum verification, and caching automatically.
   * `Dictionary::from_zstd()`: Intelligently manages `zstd`-compressed dictionaries by decompressing them to a local cache on the first run. It also automatically detects and converts legacy `bincode`-formatted dictionaries (when the legacy feature is enabled), caching them in the modern format in the background for future fast loads.
 
+* N-best Tokenization (Experimental)
+An experimental feature for retrieving multiple tokenization candidates, sorted by cost, has been added in response to an upstream feature request ([upstream issue #151](https://github.com/daac-tools/vibrato/issues/151)). The implementation employs an A* search algorithm, which helps handle ambiguity in downstream NLP tasks.
+
 ## Features
 
 ### Fast tokenization
