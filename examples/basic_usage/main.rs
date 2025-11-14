@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let preset = PresetDictionaryKind::Ipadic;
     let dict = Dictionary::from_preset_with_download(
         preset,
-        &cache_dir.join(preset.name()),
+        cache_dir.join(preset.name()),
     )?;
     println!("Dictionary loaded successfully.");
 

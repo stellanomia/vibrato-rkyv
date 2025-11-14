@@ -272,13 +272,19 @@ impl std::fmt::Debug for NbestToken<'_> {
 /// Iterator of tokens.
 pub struct TokenIter<'w> {
     worker: &'w Worker,
-    i: usize,
+    front: usize,
+    back: usize,
 }
 
 impl<'w> TokenIter<'w> {
     #[inline(always)]
-    pub(crate) const fn new(worker: &'w Worker, i: usize) -> Self {
-        Self { worker, i }
+    pub(crate) fn new(worker: &'w Worker) -> Self {
+        let num_tokens = worker.num_tokens();
+        Self {
+            worker,
+            front: 0,
+            back: num_tokens,
+        }
     }
 }
 
@@ -287,9 +293,22 @@ impl<'w> Iterator for TokenIter<'w> {
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.i < self.worker.num_tokens() {
-            let t = self.worker.token(self.i);
-            self.i += 1;
+        if self.front < self.back {
+            let t = self.worker.token(self.front);
+            self.front += 1;
+            Some(t)
+        } else {
+            None
+        }
+    }
+}
+
+impl<'w> DoubleEndedIterator for TokenIter<'w> {
+    #[inline(always)]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.front < self.back {
+            self.back -= 1;
+            let t = self.worker.token(self.back);
             Some(t)
         } else {
             None

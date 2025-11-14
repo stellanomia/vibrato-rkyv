@@ -105,8 +105,8 @@ impl Worker {
 
     /// Creates an iterator of resultant tokens.
     #[inline(always)]
-    pub const fn token_iter<'w>(&'w self) -> TokenIter<'w> {
-        TokenIter::new(self, 0)
+    pub fn token_iter<'w>(&'w self) -> TokenIter<'w> {
+        TokenIter::new(self)
     }
 
     /// Returns an iterator over the tokens in the N-best path at `path_idx`.

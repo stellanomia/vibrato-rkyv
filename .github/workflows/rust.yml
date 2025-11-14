@@ -29,10 +29,5 @@ jobs:
       - name: Build
         run: cargo build --verbose
 
-      - name: Run tests on Windows
-        if: runner.os == 'Windows'
+      - name: Run tests on ${{ matrix.os }}
         run: cargo test --verbose -- --test-threads=1
-
-      - name: Run tests on Unix
-        if: runner.os != 'Windows'
-        run: cargo test --verbose

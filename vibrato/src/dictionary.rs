@@ -13,8 +13,6 @@ use std::fs::{self, File, Metadata, create_dir_all};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
 
-#[cfg(feature = "download")]
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 
@@ -1065,7 +1063,7 @@ impl Dictionary {
     /// let mut tokenizer = Tokenizer::new(dictionary);
     /// ```
     #[cfg(feature = "download")]
-    pub fn from_preset_with_download<P: AsRef<Path>>(kind: PresetDictionaryKind, dir: P) -> Result<Self> {
+    pub fn from_preset_with_download<P: AsRef<std::path::Path>>(kind: PresetDictionaryKind, dir: P) -> Result<Self> {
         let dict_path = fetch::download_dictionary(kind, dir.as_ref())?;
 
         Self::from_zstd_with_options(
@@ -1113,7 +1111,7 @@ impl Dictionary {
     /// let dictionary = Dictionary::from_zstd(dict_path, CacheStrategy::Local).unwrap();
     /// ```
     #[cfg(feature = "download")]
-    pub fn download_dictionary<P: AsRef<Path>>(kind: PresetDictionaryKind, dir: P) -> Result<std::path::PathBuf> {
+    pub fn download_dictionary<P: AsRef<std::path::Path>>(kind: PresetDictionaryKind, dir: P) -> Result<std::path::PathBuf> {
         Ok(fetch::download_dictionary(kind, dir)?)
     }
 
@@ -1137,8 +1135,8 @@ impl Dictionary {
     /// path cannot be written to.
     pub fn decompress_zstd<P, Q>(input_path: P, output_path: Q) -> Result<()>
     where
-        P: AsRef<Path>,
-        Q: AsRef<Path>,
+        P: AsRef<std::path::Path>,
+        Q: AsRef<std::path::Path>,
     {
         let input_path = input_path.as_ref();
         let output_path = output_path.as_ref();
