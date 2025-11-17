@@ -18,7 +18,7 @@ impl BencherContext {
     fn new() -> Self {
         println!("Setting up benchmark context...");
 
-        let preset = PresetDictionaryKind::Unidic;
+        let preset = PresetDictionaryKind::UnidicCwj;
         let permanent_asset_dir = Self::permanent_asset_dir().join(preset.name());
         let permanent_zstd_path = permanent_asset_dir.join("system.dic.zst");
 

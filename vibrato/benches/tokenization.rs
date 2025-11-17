@@ -74,7 +74,7 @@ fn bench_all_presets(c: &mut Criterion) {
     let lines: &[&str] = &CORPUS.lines().collect::<Vec<&str>>();
 
     benchmark_preset(c, PresetDictionaryKind::Ipadic, &cache_dir, lines);
-    benchmark_preset(c, PresetDictionaryKind::Unidic, &cache_dir, lines);
+    benchmark_preset(c, PresetDictionaryKind::UnidicCwj, &cache_dir, lines);
     benchmark_preset(c, PresetDictionaryKind::BccwjUnidic, &cache_dir, lines);
     benchmark_preset(c, PresetDictionaryKind::BccwjUnidicCompactDual, &cache_dir, lines);
     benchmark_preset(c, PresetDictionaryKind::BccwjUnidicExtractedCompact, &cache_dir, lines);

@@ -1102,7 +1102,7 @@ impl Dictionary {
     /// # use vibrato_rkyv::{Dictionary, dictionary::PresetDictionaryKind, CacheStrategy};
     /// # let dir = Path::new("./cache_dir");
     /// let dict_path = Dictionary::download_dictionary(
-    ///     PresetDictionaryKind::Unidic,
+    ///     PresetDictionaryKind::UnidicCwj,
     ///     dir,
     /// ).unwrap();
     ///

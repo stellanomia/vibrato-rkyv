@@ -8,15 +8,17 @@ pub enum PresetDictionaryKind {
     /// MeCab IPADIC v2.7.0
     Ipadic,
     /// UniDic-cwj v3.1.1
-    Unidic,
+    UnidicCwj,
+    /// UniDic-csj v3.1.1
+    UnidicCsj,
 
     #[cfg(feature = "legacy")]
     /// UniDic-cwj v3.1.1 + Compact
-    UnidicCompact,
+    UnidicCwjCompact,
 
     #[cfg(feature = "legacy")]
     /// UniDic-cwj v3.1.1 + Compact-dual
-    UnidicCompactDual,
+    UnidicCwjCompactDual,
 
     #[cfg(feature = "legacy")]
     /// UniDic-cwj (trained BCCWJ) v3.1.1
@@ -45,28 +47,29 @@ impl PresetDictionaryKind {
 
         match self {
             Ipadic => &IPADIC,
-            Unidic => &UNIDIC,
+            UnidicCwj => &UNIDIC_CWJ,
+            UnidicCsj => &UNIDIC_CSJ,
 
             #[cfg(feature = "legacy")]
-            UnidicCompact => &UNIDIC_COMPACT,
+            UnidicCwjCompact => &UNIDIC_CWJ_COMPACT,
 
             #[cfg(feature = "legacy")]
-            UnidicCompactDual => &UNIDIC_COMPACT_DUAL,
+            UnidicCwjCompactDual => &UNIDIC_CWJ_COMPACT_DUAL,
 
             #[cfg(feature = "legacy")]
             BccwjUnidic => &BCCWJ_UNIDIC,
 
             #[cfg(feature = "legacy")]
-            BccwjUnidicCompact => &BCCWJ_UNIDIC_COMPACT,
+            BccwjUnidicCompact => &BCCWJ_UNIDIC_CWJ_COMPACT,
 
             #[cfg(feature = "legacy")]
-            BccwjUnidicCompactDual => &BCCWJ_UNIDIC_COMPACT_DUAL,
+            BccwjUnidicCompactDual => &BCCWJ_UNIDIC_CWJ_COMPACT_DUAL,
 
             #[cfg(feature = "legacy")]
-            BccwjUnidicExtractedCompact => &BCCWJ_UNIDIC_EXTRACTED_COMPACT,
+            BccwjUnidicExtractedCompact => &BCCWJ_UNIDIC_CWJ_EXTRACTED_COMPACT,
 
             #[cfg(feature = "legacy")]
-            BccwjUnidicExtractedCompactDual => &BCCWJ_UNIDIC_EXTRACTED_COMPACT_DUAL,
+            BccwjUnidicExtractedCompactDual => &BCCWJ_UNIDIC_CWJ_EXTRACTED_COMPACT_DUAL,
         }
     }
 
@@ -85,7 +88,7 @@ pub(crate) static IPADIC: DictionaryMeta = DictionaryMeta {
     sha256_hash_comp_dict: "bc27ae4a2c717799dd1779f163fe22b33d048bfc4bc7635ecfb5441916754250",
 };
 
-pub(crate) static UNIDIC: DictionaryMeta = DictionaryMeta {
+pub(crate) static UNIDIC_CWJ: DictionaryMeta = DictionaryMeta {
     name: "unidic-cwj",
     file_type: Tar,
     download_url: "https://github.com/stellanomia/vibrato-rkyv/releases/download/v0.6.2/unidic-cwj.tar",
@@ -93,8 +96,16 @@ pub(crate) static UNIDIC: DictionaryMeta = DictionaryMeta {
     sha256_hash_comp_dict: "e3972b80a6ed45a40eb47063bdd30e7f3e051779b8df38ea191c8f2379c60130",
 };
 
+pub(crate) static UNIDIC_CSJ: DictionaryMeta = DictionaryMeta {
+    name: "unidic-csj",
+    file_type: Tar,
+    download_url: "https://github.com/stellanomia/vibrato-rkyv/releases/download/v0.6.2/unidic-csj.tar",
+    sha256_hash_archive: "618af3379ce3483c370a20092d0fe064273b6cdec3315bc633bbf13c8db4756e",
+    sha256_hash_comp_dict: "cf05cea0ec5a0264cecfdd34fbaf1c9230b2c7453914644a6e2e8f7b8a3dc567",
+};
+
 #[cfg(feature = "legacy")]
-pub(crate) static UNIDIC_COMPACT: DictionaryMeta = DictionaryMeta {
+pub(crate) static UNIDIC_CWJ_COMPACT: DictionaryMeta = DictionaryMeta {
     name: "unidic-cwj+compact",
     file_type: TarXz,
     download_url: "https://github.com/daac-tools/vibrato/releases/download/v0.5.0/unidic-cwj-3_1_1+compact.tar.xz",
@@ -103,7 +114,7 @@ pub(crate) static UNIDIC_COMPACT: DictionaryMeta = DictionaryMeta {
 };
 
 #[cfg(feature = "legacy")]
-pub(crate) static UNIDIC_COMPACT_DUAL: DictionaryMeta = DictionaryMeta {
+pub(crate) static UNIDIC_CWJ_COMPACT_DUAL: DictionaryMeta = DictionaryMeta {
     name: "unidic-cwj+compact-dual",
     file_type: TarXz,
     download_url: "https://github.com/daac-tools/vibrato/releases/download/v0.5.0/unidic-cwj-3_1_1+compact-dual.tar.xz",
@@ -121,7 +132,7 @@ pub(crate) static BCCWJ_UNIDIC: DictionaryMeta = DictionaryMeta {
 };
 
 #[cfg(feature = "legacy")]
-pub(crate) static BCCWJ_UNIDIC_COMPACT: DictionaryMeta = DictionaryMeta {
+pub(crate) static BCCWJ_UNIDIC_CWJ_COMPACT: DictionaryMeta = DictionaryMeta {
     name: "bccwj-suw+unidic-cwj+compact",
     file_type: TarXz,
     download_url: "https://github.com/daac-tools/vibrato/releases/download/v0.5.0/bccwj-suw+unidic-cwj-3_1_1+compact.tar.xz",
@@ -130,7 +141,7 @@ pub(crate) static BCCWJ_UNIDIC_COMPACT: DictionaryMeta = DictionaryMeta {
 };
 
 #[cfg(feature = "legacy")]
-pub(crate) static BCCWJ_UNIDIC_COMPACT_DUAL: DictionaryMeta = DictionaryMeta {
+pub(crate) static BCCWJ_UNIDIC_CWJ_COMPACT_DUAL: DictionaryMeta = DictionaryMeta {
     name: "bccwj-suw+unidic-cwj+compact-dual",
     file_type: TarXz,
     download_url: "https://github.com/daac-tools/vibrato/releases/download/v0.5.0/bccwj-suw+unidic-cwj-3_1_1+compact-dual.tar.xz",
@@ -139,7 +150,7 @@ pub(crate) static BCCWJ_UNIDIC_COMPACT_DUAL: DictionaryMeta = DictionaryMeta {
 };
 
 #[cfg(feature = "legacy")]
-pub(crate) static BCCWJ_UNIDIC_EXTRACTED_COMPACT: DictionaryMeta = DictionaryMeta {
+pub(crate) static BCCWJ_UNIDIC_CWJ_EXTRACTED_COMPACT: DictionaryMeta = DictionaryMeta {
     name: "bccwj-suw+unidic-cwj-extracted+compact",
     file_type: TarXz,
     download_url: "https://github.com/daac-tools/vibrato/releases/download/v0.5.0/bccwj-suw+unidic-cwj-3_1_1-extracted+compact.tar.xz",
@@ -148,7 +159,7 @@ pub(crate) static BCCWJ_UNIDIC_EXTRACTED_COMPACT: DictionaryMeta = DictionaryMet
 };
 
 #[cfg(feature = "legacy")]
-pub(crate) static BCCWJ_UNIDIC_EXTRACTED_COMPACT_DUAL: DictionaryMeta = DictionaryMeta {
+pub(crate) static BCCWJ_UNIDIC_CWJ_EXTRACTED_COMPACT_DUAL: DictionaryMeta = DictionaryMeta {
     name: "bccwj-suw+unidic-cwj-extracted+compact-dual",
     file_type: TarXz,
     download_url: "https://github.com/daac-tools/vibrato/releases/download/v0.5.0/bccwj-suw+unidic-cwj-3_1_1-extracted+compact-dual.tar.xz",
