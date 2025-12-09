@@ -51,11 +51,11 @@ use vibrato_rkyv::{Dictionary, LoadMode};
 
 // Recommended for uncompressed dictionaries:
 // Almost instantaneous loading via memory-mapping.
-let dict_mmap = Dictionary::from_path("path/to/system.dic")?;
+let dict_mmap = Dictionary::from_path("path/to/system.dic", LoadMode::TrustCache)?;
 
 // Recommended for zstd-compressed dictionaries:
 // Decompresses and caches on the first run, then uses memory-mapping.
-let dict_zstd = Dictionary::from_zstd("path/to/system.dic.zst", LoadMode::TrustCache)?;
+let dict_zstd = Dictionary::from_zstd("path/to/system.dic.zst", CacheStrategy::Local)?;
 ```
 
 ## Differences
