@@ -17,13 +17,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 
 use memmap2::Mmap;
-use rkyv::{Archived, access_unchecked};
-use rkyv::rancor::Error;
-use rkyv::util::AlignedVec;
 use rkyv::{
-    access, api::serialize_using, ser::allocator::Arena, ser::sharing::Share,
-    ser::writer::IoWriter, ser::Serializer, util::with_arena, Archive, Deserialize,
-    Serialize,
+    access, access_unchecked, api::serialize_using, ser::allocator::Arena, ser::sharing::Share,
+    Archive, Archived, Deserialize, Serialize, rancor::Error,
+    ser::writer::IoWriter, ser::Serializer, util::{with_arena, AlignedVec},
 };
 use sha2::{Digest, Sha256};
 
@@ -620,7 +617,7 @@ impl Dictionary {
             Ok(archived) => {
                 if mode == LoadMode::TrustCache {
                     create_dir_all(global_cache_dir)?;
-                    File::create_new(hash_path)?;
+                    File::create(hash_path)?;
                 }
 
                 let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
@@ -925,7 +922,7 @@ impl Dictionary {
                 let decompressed_dict_hash = compute_metadata_hash(&dict_file.metadata()?);
                 let decompressed_dict_hash_path = decompressed_dir.join(format!("{}.sha256", decompressed_dict_hash));
 
-                File::create_new(decompressed_dict_hash_path)?;
+                File::create(decompressed_dict_hash_path)?;
 
                 Ok(())
             });
@@ -990,7 +987,7 @@ impl Dictionary {
         let decompressed_dict_hash = compute_metadata_hash(&File::open(&decompressed_dict_path)?.metadata()?);
         let decompressed_dict_hash_path = decompressed_dir.join(format!("{}.sha256", decompressed_dict_hash));
 
-        File::create_new(decompressed_dict_hash_path)?;
+        File::create(decompressed_dict_hash_path)?;
 
         Self::from_path(decompressed_dict_path, LoadMode::TrustCache)
     }

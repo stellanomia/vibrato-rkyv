@@ -6,7 +6,7 @@ use tempfile::tempdir_in;
 use walkdir::WalkDir;
 use xz2::read::XzDecoder;
 
-use crate::{dictionary::{PresetDictionaryKind, config::FileType}, errors::DownloadError};
+use crate::{dictionary::{PresetDictionaryKind, compute_metadata_hash, config::FileType}, errors::DownloadError};
 
 pub(crate) fn download_dictionary<P: AsRef<Path>>(kind: PresetDictionaryKind, dest_dir: P) -> Result<PathBuf, DownloadError> {
     let preset_meta = kind.meta();
@@ -15,16 +15,10 @@ pub(crate) fn download_dictionary<P: AsRef<Path>>(kind: PresetDictionaryKind, de
     let dict_path = dest_dir
         .join(format!("{}.dic.zst", preset_meta.sha256_hash_comp_dict));
 
-    if dict_path.exists() {
-        let mut dict = File::open(&dict_path)?;
-        let mut hasher = Sha256::new();
-        io::copy(&mut dict, &mut hasher)?;
-        let dict_hash = hex::encode(hasher.finalize());
-
-        if dict_hash == preset_meta.sha256_hash_comp_dict {
+    if dict_path.exists()
+        && fs::exists(Path::new(&dest_dir.join(format!("{}.sha256", compute_metadata_hash(&fs::metadata(&dict_path)?)))))? {
             return Ok(dict_path);
         }
-    }
 
     fs::create_dir_all(dest_dir)?;
 
@@ -76,6 +70,7 @@ pub(crate) fn download_dictionary<P: AsRef<Path>>(kind: PresetDictionaryKind, de
     fs::remove_file(&archive_path)?;
 
     let mut f = File::open(&dict_path)?;
+    let metadata = f.metadata()?;
     let mut hasher = Sha256::new();
     io::copy(&mut f, &mut hasher)?;
     let hash = hex::encode(hasher.finalize());
@@ -83,6 +78,21 @@ pub(crate) fn download_dictionary<P: AsRef<Path>>(kind: PresetDictionaryKind, de
     if hash != preset_meta.sha256_hash_comp_dict {
         return Err(DownloadError::ExtractedHashMismatch);
     }
+
+    if let Ok(entries) = fs::read_dir(dest_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file()
+                && path.extension().is_some_and(|ext| ext == "sha256")
+            {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+
+    let metadata_hash = compute_metadata_hash(&metadata);
+    let metadata_hash_path = dest_dir.join(format!("{metadata_hash}.sha256"));
+    File::create(metadata_hash_path)?;
 
     Ok(dict_path)
 }
