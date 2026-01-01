@@ -295,8 +295,7 @@ impl ArchivedCharProperty {
     #[inline(always)]
     pub fn char_info(&self, c: char) -> CharInfo {
         let cinfo = self.chr2inf
-            .get(usize::from_u32(u32::from(c)))
-            .map_or_else(|| &self.chr2inf[0], |cinfo| cinfo);
+            .get(usize::from_u32(u32::from(c))).unwrap_or_else(|| &self.chr2inf[0]);
         CharInfo(cinfo.0.to_native())
     }
 }
