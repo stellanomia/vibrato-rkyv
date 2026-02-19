@@ -860,8 +860,7 @@ impl Dictionary {
         Q: AsRef<std::path::Path>,
     {
         let zstd_path = path.as_ref();
-        let zstd_file = File::open(zstd_path)?;
-        let meta = zstd_file.metadata()?;
+        let meta = fs::metadata(zstd_path)?;
 
         let dict_hash = compute_metadata_hash(&meta);
         let decompressed_dir = cache_dir.as_ref().to_path_buf();
@@ -876,6 +875,7 @@ impl Dictionary {
             create_dir_all(&decompressed_dir)?;
         }
 
+        let zstd_file = File::open(zstd_path)?;
         let mut temp_file = tempfile::NamedTempFile::new_in(&decompressed_dir)?;
 
         {
@@ -1049,23 +1049,23 @@ impl Dictionary {
     /// ```no_run
     /// # use std::path::Path;
     /// # use vibrato_rkyv::{Dictionary, Tokenizer, dictionary::PresetDictionaryKind};
-    /// # let dir = Path::new("./cache_dir");
+    /// # let cache_dir = Path::new("./cache_dir");
     /// // Download and load the IPADIC preset dictionary.
     /// // The first call will download the file, subsequent calls will use the cache.
     /// let dictionary = Dictionary::from_preset_with_download(
     ///     PresetDictionaryKind::Ipadic,
-    ///     dir,
+    ///     cache_dir,
     /// ).unwrap();
     ///
     /// let mut tokenizer = Tokenizer::new(dictionary);
     /// ```
     #[cfg(feature = "download")]
-    pub fn from_preset_with_download<P: AsRef<std::path::Path>>(kind: PresetDictionaryKind, dir: P) -> Result<Self> {
-        let dict_path = fetch::download_dictionary(kind, dir.as_ref())?;
+    pub fn from_preset_with_download<P: AsRef<std::path::Path>>(kind: PresetDictionaryKind, cache_dir: P) -> Result<Self> {
+        let dict_path = fetch::download_dictionary(kind, cache_dir.as_ref())?;
 
         Self::from_zstd_with_options(
             dict_path,
-            dir,
+            cache_dir,
             #[cfg(feature = "legacy")]
             true,
         )
@@ -1097,10 +1097,10 @@ impl Dictionary {
     /// ```no_run
     /// # use std::path::Path;
     /// # use vibrato_rkyv::{Dictionary, dictionary::PresetDictionaryKind, CacheStrategy};
-    /// # let dir = Path::new("./cache_dir");
+    /// # let cache_dir = Path::new("./cache_dir");
     /// let dict_path = Dictionary::download_dictionary(
     ///     PresetDictionaryKind::UnidicCwj,
-    ///     dir,
+    ///     cache_dir,
     /// ).unwrap();
     ///
     /// println!("Dictionary downloaded to: {:?}", dict_path);
@@ -1108,8 +1108,8 @@ impl Dictionary {
     /// let dictionary = Dictionary::from_zstd(dict_path, CacheStrategy::Local).unwrap();
     /// ```
     #[cfg(feature = "download")]
-    pub fn download_dictionary<P: AsRef<std::path::Path>>(kind: PresetDictionaryKind, dir: P) -> Result<std::path::PathBuf> {
-        Ok(fetch::download_dictionary(kind, dir)?)
+    pub fn download_dictionary<P: AsRef<std::path::Path>>(kind: PresetDictionaryKind, cache_dir: P) -> Result<std::path::PathBuf> {
+        Ok(fetch::download_dictionary(kind, cache_dir)?)
     }
 
     /// Decompresses a Zstandard-compressed dictionary to a specified path.
