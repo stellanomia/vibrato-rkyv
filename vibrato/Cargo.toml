@@ -1,6 +1,6 @@
 [package]
 name = "vibrato-rkyv"
-version = "0.7.4"
+version = "0.7.5"
 edition = "2024"
 authors = [
     "stellanomia <fulmlumo@gmail.com>",
@@ -16,26 +16,26 @@ keywords = ["japanese", "analyzer", "tokenizer", "morphological"]
 categories = ["text-processing"]
 
 [dependencies]
-bumpalo = "3.19.0"
+bumpalo = "3.20.2"
 csv-core = "0.1.13"
 dirs = "6.0.0"
 hashbrown = "0.16.1"
 hex = "0.4.3"
-log = "0.4.28"
-memmap2 = "0.9.8"
-regex = "1.12.2"
+log = "0.4.29"
+memmap2 = "0.9.10"
+regex = "1.12.3"
 reqwest = { version = "0.13.2", features = ["blocking"], optional = true }
 sha2 = "0.10.9"
 tar = { version = "0.4.44", optional = true }
-tempfile = "3.23.0"
-thiserror = "2.0.17"
+tempfile = "3.26.0"
+thiserror = "2.0.18"
 walkdir = { version = "2.5.0", optional = true }
 xz2 = { version = "0.1.7", optional = true }
 zstd = "0.13.3"
 
 rkyv = { version = "0.8.15", features = ["hashbrown-0_16"] }
-crawdad-rkyv = "0.4.0-rkyv.1"
-rucrf-rkyv = { version = "0.3.3-rkyv.1", optional = true }
+crawdad-rkyv = "0.4.0-rkyv.2"
+rucrf-rkyv = { version = "0.3.3-rkyv.2", optional = true }
 
 bincode = { version = "2.0.1", default-features = false, features = ["std", "alloc", "derive"], optional = true }
 crawdad = { version = "0.4.0", optional = true }
