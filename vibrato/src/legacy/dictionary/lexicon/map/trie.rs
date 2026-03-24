@@ -1,8 +1,8 @@
 use bincode::{
+    Decode, Encode,
     de::{BorrowDecode, BorrowDecoder, Decoder},
     enc::Encoder,
     error::{DecodeError, EncodeError},
-    Decode, Encode,
 };
 
 use crate::legacy::errors::Result;

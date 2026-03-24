@@ -25,15 +25,15 @@ The table below compares the performance of loading a dictionary from a pre-deco
 
 | Condition | Original `vibrato` (Read from stream) | `vibrato-rkyv` (Memory-mapped) | Speedup |
 | :--- | :--- | :--- | :--- |
-| Cold Start (Safe Cache)¹ | ~42 s | **~1.1 ms** | ~38,000x |
+| Cold Start (Cached)¹ | ~42 s | **~1.1 ms** | ~38,000x |
 | Warm Start (Unchecked)² | ~34 s | **~2.9 µs** | ~11,700,000x |
-| Warm Start (Safe Cache)³ | ~34 s | **~4.1 µs** | ~8,300,000x |
+| Warm Start (Cached)³ | ~34 s | **~4.1 µs** | ~8,300,000x |
 
-This shows that the safety mechanism of the cache (metadata hashing and file check) adds a minimal overhead of just ~1.2 µs compared to the unsafe version.
+This shows that the cache (metadata hashing and file check) adds a minimal overhead of just ~1.2 µs compared to the unsafe version.
 
-¹ **Cold Start (Safe Cache)**: The file is not in the OS page cache, but the application cache (proof file) is valid. This measures the cost of disk I/O.  
+¹ **Cold Start (Cached)**: The file is not in the OS page cache, but the application cache (proof file) is valid. This measures the cost of disk I/O.  
 ² **Warm Start (Unchecked)**: The fastest possible scenario using `from_path_unchecked`. The file is in the OS page cache, and bytechecks are bypassed.  
-³ **Warm Start (Safe Cache)**: A typical fast reload scenario using `LoadMode::TrustCache`. The file is in the OS page cache, and minimal validation is performed.
+³ **Warm Start (Cached)**: A typical fast reload scenario using `LoadMode::TrustCache`. The file is in the OS page cache, and minimal validation is performed.
 
 ### From Zstd-Compressed File (`.dic.zst`)
 
@@ -67,7 +67,7 @@ The following summarizes key differences from the original implementation.
 If you are migrating from the original `daac-tools/vibrato`, please note the following key changes:
 
 - **Legacy Dictionary Support (with legacy feature):** `vibrato-rkyv` is designed for performance with its native `rkyv`-based dictionary format. However, to provide flexibility and allow users to leverage a wide range of dictionary assets, it also offers support for the `bincode`-based format used by the original `vibrato` when the `legacy` feature is enabled.  
-This enables the use of valuable, pre-existing dictionaries that may only be available in the `bincode` format, such as those trained on proprietary corpora (e.g., BCCWJ).  
+This enables the use of valuable, existing dictionaries that may only be available in the `bincode` format, such as those trained on proprietary corpora (e.g., BCCWJ).  
 The library handles different formats:
   - `Dictionary::from_path()`: Transparently loads both uncompressed `rkyv` and `bincode` format dictionaries. It automatically detects the format based on the file's content.
   - `Dictionary::from_zstd()`: When given a Zstandard-compressed dictionary, it provides sophisticated, format-aware caching:
@@ -106,7 +106,7 @@ Beyond the core change to `rkyv` for faster loading, `vibrato-rkyv` includes sev
   A new owned token type, `TokenBuf`, has been introduced alongside the existing borrowed `Token<'a>`. Following the familiar `Path`/`PathBuf` pattern in Rust's standard library. This makes it easy to store tokenization results, modify them, or send them across threads without lifetime complications.
 
 * **Built-in Dictionary Downloader and Manager**  
-  Getting started is now easier than ever. You can download and set up pre-compiled preset dictionaries (e.g., IPADIC, UNIDIC) with a single function call.
+  Initial setup is simplified: You can download and set up pre-compiled preset dictionaries (e.g., IPADIC, UNIDIC) with a single function call.
   * `Dictionary::from_preset_with_download()`: Handles downloading, checksum verification, and caching automatically.
   * `Dictionary::from_zstd()`: Intelligently manages `zstd`-compressed dictionaries by decompressing them to a local cache on the first run. It also automatically detects and converts legacy `bincode`-formatted dictionaries (when the legacy feature is enabled), caching them in the modern format in the background for future fast loads.
 

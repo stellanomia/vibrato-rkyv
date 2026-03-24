@@ -63,8 +63,13 @@ pub struct ConnIdInfoWriters<LW: Write, RW: Write, CW: Write> {
 #[derive(Debug, Clone)]
 pub struct DictionaryWriters<L, C, U, S, LW, RW, CW>
 where
-    L: Write, C: Write, U: Write, S: Write,
-    LW: Write, RW: Write, CW: Write,
+    L: Write,
+    C: Write,
+    U: Write,
+    S: Write,
+    LW: Write,
+    RW: Write,
+    CW: Write,
 {
     pub lexicon_wtr: L,
     pub matrix_wtr: C,
@@ -72,7 +77,6 @@ where
     pub user_lexicon_wtr: Option<S>,
     pub conn_id_info_wtrs: Option<ConnIdInfoWriters<LW, RW, CW>>,
 }
-
 
 /// Runs the dictgen subcommand. It parses arguments, loads a model, and calls the core logic.
 pub fn run(args: Args) -> Result<(), DictgenError> {
@@ -98,10 +102,7 @@ pub fn create_dictionary_writers_from_paths(
     unk_out_path: &Path,
     user_lexicon_out_path: Option<&Path>,
     conn_id_info_out_path: Option<&Path>,
-) -> Result<
-    FileDictionaryWriters,
-    io::Error,
-> {
+) -> Result<FileDictionaryWriters, io::Error> {
     let lexicon_wtr = File::create(lexicon_out_path)?;
     let matrix_wtr = File::create(matrix_out_path)?;
     let unk_wtr = File::create(unk_out_path)?;
@@ -139,8 +140,13 @@ pub fn generate_dictionary_files<L, C, U, S, LW, RW, CW>(
     writers: &mut DictionaryWriters<L, C, U, S, LW, RW, CW>,
 ) -> Result<(), VibratoError>
 where
-    L: Write, C: Write, U: Write, S: Write,
-    LW: Write, RW: Write, CW: Write,
+    L: Write,
+    C: Write,
+    U: Write,
+    S: Write,
+    LW: Write,
+    RW: Write,
+    CW: Write,
 {
     if let Some(user_wtr) = writers.user_lexicon_wtr.as_mut() {
         model.write_dictionary(

@@ -15,16 +15,10 @@ fn build_test_dictionary(
     unk_def: &[u8],
 ) -> Dictionary {
     let dict_inner =
-        SystemDictionaryBuilder::from_readers(
-            lexicon_csv,
-            matrix_def,
-            char_def,
-            unk_def
-        ).unwrap();
+        SystemDictionaryBuilder::from_readers(lexicon_csv, matrix_def, char_def, unk_def).unwrap();
 
     Dictionary::from_inner(dict_inner)
 }
-
 
 #[test]
 fn test_tokenize_tokyo() {
@@ -128,14 +122,12 @@ fn test_tokenize_kyotokyo_with_user() {
         let char_def = CHAR_DEF.as_bytes();
         let unk_def = UNK_DEF.as_bytes();
         let dict_inner =
-            SystemDictionaryBuilder::from_readers(
-                lexicon_csv,
-                matrix_def,
-                char_def,
-                unk_def
-            ).unwrap();
+            SystemDictionaryBuilder::from_readers(lexicon_csv, matrix_def, char_def, unk_def)
+                .unwrap();
 
-        let dict_inner = dict_inner.reset_user_lexicon_from_reader(Some(USER_CSV.as_bytes())).unwrap();
+        let dict_inner = dict_inner
+            .reset_user_lexicon_from_reader(Some(USER_CSV.as_bytes()))
+            .unwrap();
 
         Dictionary::from_inner(dict_inner)
     };
@@ -422,14 +414,12 @@ fn test_tokenize_kampersanda_with_user() {
         let char_def = CHAR_DEF.as_bytes();
         let unk_def = UNK_DEF.as_bytes();
         let dict_inner =
-            SystemDictionaryBuilder::from_readers(
-                lexicon_csv,
-                matrix_def,
-                char_def,
-                unk_def
-            ).unwrap();
+            SystemDictionaryBuilder::from_readers(lexicon_csv, matrix_def, char_def, unk_def)
+                .unwrap();
 
-        let dict_inner = dict_inner.reset_user_lexicon_from_reader(Some(USER_CSV.as_bytes())).unwrap();
+        let dict_inner = dict_inner
+            .reset_user_lexicon_from_reader(Some(USER_CSV.as_bytes()))
+            .unwrap();
 
         Dictionary::from_inner(dict_inner)
     };

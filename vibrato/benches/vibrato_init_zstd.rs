@@ -1,13 +1,11 @@
-use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use tar::Archive;
-use xz2::bufread::XzDecoder;
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
+use std::fs::{self, File};
 use std::io::{self, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::fs::{self, File};
+use tar::Archive;
+use xz2::bufread::XzDecoder;
 
-fn prepare_vibrato_dictionary(
-    cache_dir: &Path,
-) -> Result<PathBuf, Box<dyn std::error::Error>> {
+fn prepare_vibrato_dictionary(cache_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let dict_dir = cache_dir;
     let dict_path = dict_dir.join("system.dic");
     let compressed_dict_path = dict_dir.join("unidic-cwj-3_1_1/system.dic.zst");
@@ -39,7 +37,6 @@ fn prepare_vibrato_dictionary(
     }
 }
 
-
 fn drop_caches() {
     #[cfg(target_os = "linux")]
     {
@@ -57,8 +54,8 @@ fn bench_vibrato_dictionary_load(c: &mut Criterion) {
         .expect("Failed to get cache directory")
         .join("vibrato-rkyv-assets/vibrato");
 
-    let compressed_dict_path = prepare_vibrato_dictionary(&cache_dir)
-        .expect("Failed to prepare vibrato dictionary.");
+    let compressed_dict_path =
+        prepare_vibrato_dictionary(&cache_dir).expect("Failed to prepare vibrato dictionary.");
 
     if !compressed_dict_path.exists() {
         panic!("Dictionary file not found.");
@@ -82,14 +79,11 @@ fn bench_vibrato_dictionary_load(c: &mut Criterion) {
 
     // vibrato (bincode, cold)
     group.bench_function("vibrato/zstd/cold", |b| {
-        b.iter_with_setup(
-            drop_caches,
-            |_| {
-                let file = File::open(&compressed_dict_path).unwrap();
-                let mut decoder = zstd::Decoder::new(file).unwrap();
-                std::hint::black_box(vibrato::Dictionary::read(&mut decoder).unwrap());
-            },
-        )
+        b.iter_with_setup(drop_caches, |_| {
+            let file = File::open(&compressed_dict_path).unwrap();
+            let mut decoder = zstd::Decoder::new(file).unwrap();
+            std::hint::black_box(vibrato::Dictionary::read(&mut decoder).unwrap());
+        })
     });
     group.finish();
 }

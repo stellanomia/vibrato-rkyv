@@ -2,8 +2,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use vibrato_rkyv::{dictionary::PresetDictionaryKind, Dictionary, Tokenizer};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use vibrato_rkyv::{Dictionary, Tokenizer, dictionary::PresetDictionaryKind};
 
 const CORPUS: &str = include_str!("./resources/waganeko.txt");
 
@@ -76,9 +76,24 @@ fn bench_all_presets(c: &mut Criterion) {
     benchmark_preset(c, PresetDictionaryKind::Ipadic, &cache_dir, lines);
     benchmark_preset(c, PresetDictionaryKind::UnidicCwj, &cache_dir, lines);
     benchmark_preset(c, PresetDictionaryKind::BccwjUnidic, &cache_dir, lines);
-    benchmark_preset(c, PresetDictionaryKind::BccwjUnidicCompactDual, &cache_dir, lines);
-    benchmark_preset(c, PresetDictionaryKind::BccwjUnidicExtractedCompact, &cache_dir, lines);
-    benchmark_preset(c, PresetDictionaryKind::BccwjUnidicExtractedCompactDual, &cache_dir, lines);
+    benchmark_preset(
+        c,
+        PresetDictionaryKind::BccwjUnidicCompactDual,
+        &cache_dir,
+        lines,
+    );
+    benchmark_preset(
+        c,
+        PresetDictionaryKind::BccwjUnidicExtractedCompact,
+        &cache_dir,
+        lines,
+    );
+    benchmark_preset(
+        c,
+        PresetDictionaryKind::BccwjUnidicExtractedCompactDual,
+        &cache_dir,
+        lines,
+    );
 }
 
 criterion_group!(benches, bench_all_presets);

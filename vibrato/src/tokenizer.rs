@@ -42,7 +42,10 @@ impl Tokenizer {
     /// Creates a new tokenizer from `DictionaryInner`.
     pub fn from_inner(dict: DictionaryInner) -> Self {
         Self {
-            dict: Arc::new(Dictionary::Owned { dict: Arc::new(dict), _caching_handle: None }),
+            dict: Arc::new(Dictionary::Owned {
+                dict: Arc::new(dict),
+                _caching_handle: None,
+            }),
             space_cateset: None,
             max_grouping_len: None,
         }
@@ -73,8 +76,9 @@ impl Tokenizer {
         if yes {
             let cate_id = match &*self.dict {
                 Dictionary::Archived(archived_dict) => archived_dict.char_prop().cate_id("SPACE"),
-                Dictionary::Owned { dict, ..} => dict.char_prop().cate_id("SPACE"),
-            }.ok_or_else(|| {
+                Dictionary::Owned { dict, .. } => dict.char_prop().cate_id("SPACE"),
+            }
+            .ok_or_else(|| {
                 VibratoError::invalid_argument(
                     "dict",
                     "SPACE is not defined in the input dictionary (i.e., char.def).",
@@ -87,7 +91,6 @@ impl Tokenizer {
         }
         Ok(self)
     }
-
 
     /// Specifies the maximum grouping length for unknown words.
     /// By default, the length is infinity.
@@ -128,7 +131,7 @@ impl Tokenizer {
                 ArchivedConnectorWrapper::Raw(c) => self.build_lattice_inner(sent, lattice, c),
                 ArchivedConnectorWrapper::Dual(c) => self.build_lattice_inner(sent, lattice, c),
             },
-            Dictionary::Owned{ dict, .. } => match dict.connector() {
+            Dictionary::Owned { dict, .. } => match dict.connector() {
                 ConnectorWrapper::Matrix(c) => self.build_lattice_inner(sent, lattice, c),
                 ConnectorWrapper::Raw(c) => self.build_lattice_inner(sent, lattice, c),
                 ConnectorWrapper::Dual(c) => self.build_lattice_inner(sent, lattice, c),
@@ -139,11 +142,17 @@ impl Tokenizer {
     pub(crate) fn build_lattice_nbest(&self, sent: &Sentence, lattice: &mut LatticeNBest) {
         match &*self.dict {
             Dictionary::Archived(archived_dict) => match archived_dict.connector() {
-                ArchivedConnectorWrapper::Matrix(c) => self.build_lattice_inner_nbest(sent, lattice, c),
-                ArchivedConnectorWrapper::Raw(c) => self.build_lattice_inner_nbest(sent, lattice, c),
-                ArchivedConnectorWrapper::Dual(c) => self.build_lattice_inner_nbest(sent, lattice, c),
+                ArchivedConnectorWrapper::Matrix(c) => {
+                    self.build_lattice_inner_nbest(sent, lattice, c)
+                }
+                ArchivedConnectorWrapper::Raw(c) => {
+                    self.build_lattice_inner_nbest(sent, lattice, c)
+                }
+                ArchivedConnectorWrapper::Dual(c) => {
+                    self.build_lattice_inner_nbest(sent, lattice, c)
+                }
             },
-            Dictionary::Owned{ dict, .. } => match dict.connector() {
+            Dictionary::Owned { dict, .. } => match dict.connector() {
                 ConnectorWrapper::Matrix(c) => self.build_lattice_inner_nbest(sent, lattice, c),
                 ConnectorWrapper::Raw(c) => self.build_lattice_inner_nbest(sent, lattice, c),
                 ConnectorWrapper::Dual(c) => self.build_lattice_inner_nbest(sent, lattice, c),
@@ -198,8 +207,12 @@ impl Tokenizer {
         lattice.insert_eos(start_node, connector);
     }
 
-    fn build_lattice_inner_nbest<C>(&self, sent: &Sentence, lattice: &mut LatticeNBest, connector: &C)
-    where
+    fn build_lattice_inner_nbest<C>(
+        &self,
+        sent: &Sentence,
+        lattice: &mut LatticeNBest,
+        connector: &C,
+    ) where
         C: ConnectorCost,
     {
         lattice.reset(sent.len_char());
@@ -319,9 +332,8 @@ impl Tokenizer {
         C: ConnectorCost,
     {
         match self.dictionary() {
-            DictionaryInnerRef::Archived(dict) => {
-                self.add_lattice_edges_archived(sent, lattice, start_node, start_word, connector, dict)
-            }
+            DictionaryInnerRef::Archived(dict) => self
+                .add_lattice_edges_archived(sent, lattice, start_node, start_word, connector, dict),
             DictionaryInnerRef::Owned(dict) => {
                 self.add_lattice_edges_owned(sent, lattice, start_node, start_word, connector, dict)
             }
@@ -339,12 +351,12 @@ impl Tokenizer {
         C: ConnectorCost,
     {
         match self.dictionary() {
-            DictionaryInnerRef::Archived(dict) => {
-                self.add_lattice_edges_archived_nbest(sent, lattice, start_node, start_word, connector, dict)
-            }
-            DictionaryInnerRef::Owned(dict) => {
-                self.add_lattice_edges_owned_nbest(sent, lattice, start_node, start_word, connector, dict)
-            }
+            DictionaryInnerRef::Archived(dict) => self.add_lattice_edges_archived_nbest(
+                sent, lattice, start_node, start_word, connector, dict,
+            ),
+            DictionaryInnerRef::Owned(dict) => self.add_lattice_edges_owned_nbest(
+                sent, lattice, start_node, start_word, connector, dict,
+            ),
         }
     }
 
@@ -359,15 +371,7 @@ impl Tokenizer {
     ) where
         C: ConnectorCost,
     {
-        add_lattice_edges_logic!(
-            self,
-            sent,
-            lattice,
-            start_node,
-            start_word,
-            connector,
-            dict,
-        )
+        add_lattice_edges_logic!(self, sent, lattice, start_node, start_word, connector, dict,)
     }
 
     fn add_lattice_edges_owned<C>(
@@ -381,15 +385,7 @@ impl Tokenizer {
     ) where
         C: ConnectorCost,
     {
-        add_lattice_edges_logic!(
-            self,
-            sent,
-            lattice,
-            start_node,
-            start_word,
-            connector,
-            dict,
-        )
+        add_lattice_edges_logic!(self, sent, lattice, start_node, start_word, connector, dict,)
     }
 
     fn add_lattice_edges_archived_nbest<C>(
@@ -403,15 +399,7 @@ impl Tokenizer {
     ) where
         C: ConnectorCost,
     {
-        add_lattice_edges_logic!(
-            self,
-            sent,
-            lattice,
-            start_node,
-            start_word,
-            connector,
-            dict,
-        )
+        add_lattice_edges_logic!(self, sent, lattice, start_node, start_word, connector, dict,)
     }
 
     fn add_lattice_edges_owned_nbest<C>(
@@ -425,15 +413,7 @@ impl Tokenizer {
     ) where
         C: ConnectorCost,
     {
-        add_lattice_edges_logic!(
-            self,
-            sent,
-            lattice,
-            start_node,
-            start_word,
-            connector,
-            dict,
-        )
+        add_lattice_edges_logic!(self, sent, lattice, start_node, start_word, connector, dict,)
     }
 }
 
@@ -451,12 +431,8 @@ mod tests {
         unk_def: &[u8],
     ) -> Dictionary {
         let dict_inner =
-            SystemDictionaryBuilder::from_readers(
-                lexicon_csv,
-                matrix_def,
-                char_def,
-                unk_def
-            ).unwrap();
+            SystemDictionaryBuilder::from_readers(lexicon_csv, matrix_def, char_def, unk_def)
+                .unwrap();
 
         Dictionary::from_inner(dict_inner)
     }
@@ -696,12 +672,20 @@ mod tests {
         // Empty string
         worker.reset_sentence("");
         worker.tokenize_nbest(5);
-        assert_eq!(worker.num_nbest_paths(), 0, "N-best for empty string should be empty");
+        assert_eq!(
+            worker.num_nbest_paths(),
+            0,
+            "N-best for empty string should be empty"
+        );
 
         // No ambiguity
         worker.reset_sentence("言語");
         worker.tokenize_nbest(5);
-        assert_eq!(worker.num_nbest_paths(), 1, "Should find only 1 path for unambiguous input");
+        assert_eq!(
+            worker.num_nbest_paths(),
+            1,
+            "Should find only 1 path for unambiguous input"
+        );
         assert_eq!(worker.path_cost(0), Some(4));
         let mut tokens = worker.nbest_token_iter(0).unwrap();
         assert_eq!(tokens.next().unwrap().surface(), "言語");

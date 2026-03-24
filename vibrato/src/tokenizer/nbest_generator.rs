@@ -4,8 +4,8 @@ use std::collections::BinaryHeap;
 use std::rc::Rc;
 
 use super::lattice::Node;
-use crate::dictionary::connector::ConnectorCost;
 use crate::dictionary::DictionaryInnerRef;
+use crate::dictionary::connector::ConnectorCost;
 use crate::tokenizer::lattice::LatticeNBest;
 
 // The following structs are designed to reconstruct paths from the A* search result.
@@ -36,11 +36,21 @@ struct QueueItem {
     priority: i32,
 }
 
-impl PartialEq for QueueItem { fn eq(&self, other: &Self) -> bool { self.priority == other.priority } }
+impl PartialEq for QueueItem {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority == other.priority
+    }
+}
 impl Eq for QueueItem {}
-impl PartialOrd for QueueItem { fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) } }
+impl PartialOrd for QueueItem {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 impl Ord for QueueItem {
-    fn cmp(&self, other: &Self) -> Ordering { other.priority.cmp(&self.priority) } // Invert to create a min-heap
+    fn cmp(&self, other: &Self) -> Ordering {
+        other.priority.cmp(&self.priority)
+    } // Invert to create a min-heap
 }
 
 /// Generator for N-best tokenization results.
@@ -68,7 +78,11 @@ impl<'a> NbestGenerator<'a> {
                 path: initial_path,
             });
         }
-        Self { queue, connector, dictionary }
+        Self {
+            queue,
+            connector,
+            dictionary,
+        }
     }
 }
 
@@ -101,13 +115,18 @@ impl<'a> Iterator for NbestGenerator<'a> {
                 let prev_node_ptr = lpath.lnode;
                 let prev_node = unsafe { &*prev_node_ptr };
 
-                let conn_cost = self.connector.cost(prev_node.right_id, current_node.left_id);
+                let conn_cost = self
+                    .connector
+                    .cost(prev_node.right_id, current_node.left_id);
                 let word_cost = if current_node.is_bos() || current_node.is_eos() {
                     0
                 } else {
-                    self.dictionary.word_param(current_node.word_idx()).word_cost
+                    self.dictionary
+                        .word_param(current_node.word_idx())
+                        .word_cost
                 };
-                let new_backward_cost = current_path.backward_cost + conn_cost + i32::from(word_cost);
+                let new_backward_cost =
+                    current_path.backward_cost + conn_cost + i32::from(word_cost);
                 let new_priority = new_backward_cost + prev_node.min_cost; // f(x) = g(x) + h(x)
 
                 let new_path = Rc::new(SearchPath {
@@ -115,7 +134,10 @@ impl<'a> Iterator for NbestGenerator<'a> {
                     prev: Some(Rc::clone(current_path)),
                     backward_cost: new_backward_cost,
                 });
-                self.queue.push(QueueItem { path: new_path, priority: new_priority });
+                self.queue.push(QueueItem {
+                    path: new_path,
+                    priority: new_priority,
+                });
 
                 lpath_ptr = lpath.lnext;
             }

@@ -1,6 +1,6 @@
 use std::fs;
-use std::{error::Error, path::PathBuf};
 use std::path::Path;
+use std::{error::Error, path::PathBuf};
 
 use vibrato_rkyv::{CacheStrategy, Dictionary, LoadMode, Tokenizer};
 
@@ -56,7 +56,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("--- Manual Dictionary Loading Example ---");
 
     if !Path::new(ZSTD_DICT_PATH).exists() {
-        eprintln!("Error: Compressed dictionary file not found at '{}'", ZSTD_DICT_PATH);
+        eprintln!(
+            "Error: Compressed dictionary file not found at '{}'",
+            ZSTD_DICT_PATH
+        );
         eprintln!("See comments in `vibrato/examples/manual_load.rs` for setup instructions.");
         return Err("Dictionary file missing".into());
     }
@@ -68,12 +71,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     // subdirectory next to the source file.
     println!("\n1. Loading with `from_zstd`");
     let _dict_zstd = Dictionary::from_zstd(ZSTD_DICT_PATH, CacheStrategy::GlobalCache)?;
-    println!("Dictionary loaded from '{}'. Check for a 'decompressed' directory nearby.", ZSTD_DICT_PATH);
+    println!(
+        "Dictionary loaded from '{}'. Check for a 'decompressed' directory nearby.",
+        ZSTD_DICT_PATH
+    );
 
     // (Tokenization is the same for all, so we'll show it once at the end)
 
     // Clean up the cache created by `from_zstd` for the next step.
-    let default_cache_dir = Path::new(ZSTD_DICT_PATH).parent().unwrap().join("decompressed");
+    let default_cache_dir = Path::new(ZSTD_DICT_PATH)
+        .parent()
+        .unwrap()
+        .join("decompressed");
     if default_cache_dir.exists() {
         fs::remove_dir_all(&default_cache_dir)?;
     }
@@ -87,7 +96,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Now, we have the decompressed `.dic` file ready in our controlled location.
     let dic_path = setup_cache_dir.join(Path::new(ZSTD_DICT_PATH).file_stem().unwrap());
-    println!("Decompressed dictionary is ready at: {}", dic_path.display());
+    println!(
+        "Decompressed dictionary is ready at: {}",
+        dic_path.display()
+    );
 
     // `from_path:
     println!("\n3. Loading with `from_path`");
@@ -97,14 +109,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let _dict_validate = Dictionary::from_path(&dic_path, LoadMode::Validate)?;
     println!("Dictionary loaded safely with validation.");
 
-
     println!("\n3b. Using LoadMode::TrustCache");
-    println!("(First run with this mode creates a cache file: {}.sha256)", dic_path.display());
+    println!(
+        "(First run with this mode creates a cache file: {}.sha256)",
+        dic_path.display()
+    );
 
     // LoadMode::TrustCache: Fast on Subsequent Loads
     let dict_trust_cache = Dictionary::from_path(&dic_path, LoadMode::TrustCache)?;
     println!("Dictionary loaded via TrustCache mode.");
-
 
     // Now let's see the tokenizer in action with the final loaded dictionary
     println!("\n--- Tokenization Example ---");

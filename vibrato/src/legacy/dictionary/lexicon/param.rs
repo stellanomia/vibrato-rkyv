@@ -1,6 +1,5 @@
 use bincode::{Decode, Encode};
 
-
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Decode, Encode)]
 pub struct WordParam {
     pub left_id: u16,

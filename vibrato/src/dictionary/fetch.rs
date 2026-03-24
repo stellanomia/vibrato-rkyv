@@ -1,24 +1,67 @@
 #![cfg(feature = "download")]
-use std::{fs::{self, File}, io::{self, Seek, SeekFrom}, path::{Path, PathBuf}};
+use std::{
+    fs::{self, File},
+    io::{self, Seek, SeekFrom},
+    path::{Path, PathBuf}, sync::Mutex,
+};
 
+use fs4::fs_std::FileExt;
 use sha2::{Digest, Sha256};
 use tempfile::tempdir_in;
 use walkdir::WalkDir;
 use xz2::read::XzDecoder;
 
-use crate::{dictionary::{PresetDictionaryKind, compute_metadata_hash, config::FileType}, errors::DownloadError};
+use crate::{
+    dictionary::{PresetDictionaryKind, compute_metadata_hash, config::FileType},
+    errors::DownloadError,
+};
 
-pub(crate) fn download_dictionary<P: AsRef<Path>>(kind: PresetDictionaryKind, dest_dir: P) -> Result<PathBuf, DownloadError> {
+static DICT_LOCK: Mutex<()> = Mutex::new(());
+
+pub(crate) fn download_dictionary<P: AsRef<Path>>(
+    kind: PresetDictionaryKind,
+    dest_dir: P,
+) -> Result<PathBuf, DownloadError> {
     let preset_meta = kind.meta();
     let dest_dir = dest_dir.as_ref();
 
-    let dict_path = dest_dir
-        .join(format!("{}.dic.zst", preset_meta.sha256_hash_comp_dict));
+    let dict_path = dest_dir.join(format!("{}.dic.zst", preset_meta.sha256_hash_comp_dict));
 
     if dict_path.exists()
-        && fs::exists(Path::new(&dest_dir.join(format!("{}.sha256", compute_metadata_hash(&fs::metadata(&dict_path)?)))))? {
-            return Ok(dict_path);
-        }
+        && fs::exists(Path::new(&dest_dir.join(format!(
+            "{}.sha256",
+            compute_metadata_hash(&fs::metadata(&dict_path)?)
+        ))))?
+    {
+        return Ok(dict_path);
+    }
+
+    let _thread_guard = DICT_LOCK.lock().expect("Poisoned");
+
+    let lock_file_path = dest_dir.join(".lock");
+
+    let lock_file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&lock_file_path)?;
+
+    lock_file
+        .lock_exclusive()
+        .map_err(|e| DownloadError::CacheIo {
+            path: lock_file_path.clone(),
+            source: e,
+        })?;
+
+    if dict_path.exists()
+        && fs::exists(Path::new(&dest_dir.join(format!(
+            "{}.sha256",
+            compute_metadata_hash(&fs::metadata(&dict_path)?)
+        ))))?
+    {
+        return Ok(dict_path);
+    }
 
     fs::create_dir_all(dest_dir)?;
 
@@ -82,9 +125,7 @@ pub(crate) fn download_dictionary<P: AsRef<Path>>(kind: PresetDictionaryKind, de
     if let Ok(entries) = fs::read_dir(dest_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file()
-                && path.extension().is_some_and(|ext| ext == "sha256")
-            {
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "sha256") {
                 let _ = fs::remove_file(path);
             }
         }

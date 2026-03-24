@@ -17,7 +17,6 @@ use crate::legacy::dictionary::mapper::ConnIdMapper;
 use crate::legacy::dictionary::unknown::UnkHandler;
 use crate::legacy::errors::{Result, VibratoError};
 
-
 const MODEL_MAGIC: &[u8] = b"VibratoTokenizer 0.5\n";
 
 /// Type of a lexicon that contains the word.

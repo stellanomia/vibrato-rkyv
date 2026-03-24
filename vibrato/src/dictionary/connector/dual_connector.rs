@@ -4,9 +4,9 @@ use hashbrown::{HashMap, HashSet};
 use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::dictionary::connector::raw_connector::scorer::{
-    Scorer, ScorerBuilder, U31x8, SIMD_SIZE,
+    SIMD_SIZE, Scorer, ScorerBuilder, U31x8,
 };
-use crate::dictionary::connector::raw_connector::{RawConnectorBuilder, INVALID_FEATURE_ID};
+use crate::dictionary::connector::raw_connector::{INVALID_FEATURE_ID, RawConnectorBuilder};
 use crate::dictionary::connector::{Connector, ConnectorCost, ConnectorView, MatrixConnector};
 use crate::dictionary::mapper::ConnIdMapper;
 use crate::errors::Result;
@@ -46,9 +46,10 @@ impl DualConnector {
                         let mut new_feats = vec![];
                         for &i in &matrix_indices {
                             if i != trial_idx
-                                && let Some(f) = row.get(i) {
-                                    new_feats.push(f);
-                                }
+                                && let Some(f) = row.get(i)
+                            {
+                                new_feats.push(f);
+                            }
                         }
                         *map.entry(new_feats).or_insert(0) += 1;
                     }
@@ -296,7 +297,9 @@ impl ConnectorCost for ArchivedDualConnector {
     fn cost(&self, right_id: u16, left_id: u16) -> i32 {
         let right_conn_id = self.right_conn_id_map[usize::from(right_id)];
         let left_conn_id = self.left_conn_id_map[usize::from(left_id)];
-        let matrix_cost = self.matrix_connector.cost(right_conn_id.to_native(), left_conn_id.to_native());
+        let matrix_cost = self
+            .matrix_connector
+            .cost(right_conn_id.to_native(), left_conn_id.to_native());
         let raw_cost = self.raw_scorer.accumulate_cost(
             &[self.right_feat_ids[usize::from(right_id)]],
             &[self.left_feat_ids[usize::from(left_id)]],

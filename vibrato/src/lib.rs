@@ -74,7 +74,7 @@ mod test_utils;
 #[cfg(test)]
 mod tests;
 
-pub use dictionary::{Dictionary, SystemDictionaryBuilder, LoadMode, CacheStrategy};
+pub use dictionary::{CacheStrategy, Dictionary, LoadMode, SystemDictionaryBuilder};
 pub use tokenizer::Tokenizer;
 
 /// Version number of this library.

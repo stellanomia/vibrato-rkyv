@@ -6,10 +6,10 @@ publish = false
 
 [dependencies]
 vibrato-rkyv = { path = "../vibrato", features = ["train", "legacy"], default-features = false }
-clap = { version = "4.0", features = ["derive"] }  # MIT or Apache-2.0
+clap = { version = "4.6.0", features = ["derive"] }  # MIT or Apache-2.0
 zstd = "0.13.3"  # MIT
-thiserror = "2.0.17"
-flate2 = "1.1.5"
-tar = "0.4.44"
-tempfile = "3.23.0"
+thiserror = "2.0.18"
+flate2 = "1.1.9"
+tar = "0.4.45"
+tempfile = "3.27.0"
 xz2 = "0.1.7"

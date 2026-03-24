@@ -1,11 +1,11 @@
 //! Provider of a routine for tokenization.
-use crate::dictionary::{ConnectorKindRef, DictionaryInnerRef};
 use crate::dictionary::connector::ConnectorView;
 use crate::dictionary::mapper::{ConnIdCounter, ConnIdProbs};
+use crate::dictionary::{ConnectorKindRef, DictionaryInnerRef};
 use crate::sentence::Sentence;
 use crate::token::{NbestTokenIter, Token, TokenIter};
-use crate::tokenizer::lattice::{Lattice, LatticeKind, Node};
 use crate::tokenizer::Tokenizer;
+use crate::tokenizer::lattice::{Lattice, LatticeKind, Node};
 use crate::tokenizer::nbest_generator::NbestGenerator;
 
 /// Provider of a routine for tokenization.
@@ -47,10 +47,10 @@ impl Worker {
             match self.tokenizer.dictionary() {
                 DictionaryInnerRef::Archived(dict) => {
                     self.sent.compile_archived(dict.char_prop());
-                },
+                }
                 DictionaryInnerRef::Owned(dict) => {
                     self.sent.compile(dict.char_prop());
-                },
+                }
             }
         }
     }
@@ -78,14 +78,19 @@ impl Worker {
         }
         let lattice_nbest = self.lattice.prepare_for_nbest(self.sent.len_char());
 
-        self.tokenizer.build_lattice_nbest(&self.sent, lattice_nbest);
+        self.tokenizer
+            .build_lattice_nbest(&self.sent, lattice_nbest);
 
         let dict_ref = self.tokenizer.dictionary();
         let connector_ref = dict_ref.connector();
 
         let generator = match connector_ref {
-            ConnectorKindRef::Archived(connector) => NbestGenerator::new(lattice_nbest, connector, dict_ref),
-            ConnectorKindRef::Owned(connector) => NbestGenerator::new(lattice_nbest, connector, dict_ref),
+            ConnectorKindRef::Archived(connector) => {
+                NbestGenerator::new(lattice_nbest, connector, dict_ref)
+            }
+            ConnectorKindRef::Owned(connector) => {
+                NbestGenerator::new(lattice_nbest, connector, dict_ref)
+            }
         };
         self.nbest_paths = generator.take(n).collect();
     }
@@ -121,15 +126,14 @@ impl Worker {
     /// Initializes a counter to compute occurrence probabilities of connection ids.
     pub fn init_connid_counter(&mut self) {
         let (num_left, num_right) = match self.tokenizer.dictionary() {
-            DictionaryInnerRef::Archived(dict) =>
-                (dict.connector().num_left(), dict.connector().num_right()),
-            DictionaryInnerRef::Owned(dict) =>
-                (dict.connector().num_left(), dict.connector().num_right()),
+            DictionaryInnerRef::Archived(dict) => {
+                (dict.connector().num_left(), dict.connector().num_right())
+            }
+            DictionaryInnerRef::Owned(dict) => {
+                (dict.connector().num_left(), dict.connector().num_right())
+            }
         };
-        self.counter = Some(ConnIdCounter::new(
-            num_left,
-            num_right,
-        ));
+        self.counter = Some(ConnIdCounter::new(num_left, num_right));
     }
 
     /// Updates frequencies of connection ids at the last tokenization.
@@ -139,8 +143,12 @@ impl Worker {
     /// It will panic when [`Self::init_connid_counter()`] has never been called.
     pub fn update_connid_counts(&mut self) {
         match &self.lattice {
-            LatticeKind::For1Best(lattice) => lattice.add_connid_counts(self.counter.as_mut().unwrap()),
-            LatticeKind::ForNBest(lattice_nbest) => lattice_nbest.add_connid_counts(self.counter.as_mut().unwrap()),
+            LatticeKind::For1Best(lattice) => {
+                lattice.add_connid_counts(self.counter.as_mut().unwrap())
+            }
+            LatticeKind::ForNBest(lattice_nbest) => {
+                lattice_nbest.add_connid_counts(self.counter.as_mut().unwrap())
+            }
         }
     }
 

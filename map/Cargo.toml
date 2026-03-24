@@ -9,7 +9,7 @@ default-run = "map"
 vibrato-rkyv = { path = "../vibrato" }
 clap = { version = "4.0", features = ["derive"] }  # MIT or Apache-2.0
 zstd = "0.13.3"  # MIT
-rkyv = "0.8.12"
+rkyv = "0.8.15"
 
 [[bin]]
 name = "reorder"

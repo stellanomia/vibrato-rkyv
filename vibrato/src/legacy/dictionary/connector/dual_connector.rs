@@ -1,9 +1,7 @@
 use bincode::{Decode, Encode};
 
-use crate::legacy::dictionary::connector::raw_connector::scorer::{
-    Scorer, U31x8,
-};
 use crate::legacy::dictionary::connector::MatrixConnector;
+use crate::legacy::dictionary::connector::raw_connector::scorer::{Scorer, U31x8};
 
 #[derive(Decode, Encode)]
 pub struct DualConnector {

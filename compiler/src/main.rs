@@ -7,8 +7,10 @@ mod transmute_legacy;
 use clap::Parser;
 use thiserror::Error;
 
-use crate::{build::BuildError, dictgen::DictgenError, full_build::FullBuildError, train::TrainError, transmute_legacy::TransmuteLegacyError};
-
+use crate::{
+    build::BuildError, dictgen::DictgenError, full_build::FullBuildError, train::TrainError,
+    transmute_legacy::TransmuteLegacyError,
+};
 
 #[derive(Parser, Debug)]
 #[clap(name = "compile", version)]

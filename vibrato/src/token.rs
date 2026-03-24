@@ -2,7 +2,7 @@
 use std::ops::Range;
 
 use crate::dictionary::DictionaryInnerRef;
-use crate::dictionary::{word_idx::WordIdx, LexType};
+use crate::dictionary::{LexType, word_idx::WordIdx};
 use crate::tokenizer::lattice::Node;
 use crate::tokenizer::worker::Worker;
 
@@ -50,10 +50,8 @@ impl<'w> Token<'w> {
     #[inline(always)]
     pub fn feature(&self) -> &str {
         match self.worker.tokenizer.dictionary() {
-            DictionaryInnerRef::Archived(dict) => dict
-                .word_feature(self.word_idx()),
-            DictionaryInnerRef::Owned(dict) => dict
-                .word_feature(self.word_idx()),
+            DictionaryInnerRef::Archived(dict) => dict.word_feature(self.word_idx()),
+            DictionaryInnerRef::Owned(dict) => dict.word_feature(self.word_idx()),
         }
     }
 
@@ -82,10 +80,8 @@ impl<'w> Token<'w> {
     pub fn word_cost(&self) -> i16 {
         let (_, node) = &self.worker.top_nodes[self.index];
         match self.worker.tokenizer.dictionary() {
-            DictionaryInnerRef::Archived(dict) => dict
-                .word_param(node.word_idx()).word_cost,
-            DictionaryInnerRef::Owned(dict) => dict
-                .word_param(node.word_idx()).word_cost,
+            DictionaryInnerRef::Archived(dict) => dict.word_param(node.word_idx()).word_cost,
+            DictionaryInnerRef::Owned(dict) => dict.word_param(node.word_idx()).word_cost,
         }
     }
 
@@ -177,10 +173,8 @@ impl<'w> NbestToken<'w> {
     #[inline(always)]
     pub fn feature(&self) -> &'w str {
         match self.worker.tokenizer.dictionary() {
-            DictionaryInnerRef::Archived(dict) => dict
-                .word_feature(self.word_idx()),
-            DictionaryInnerRef::Owned(dict) => dict
-                .word_feature(self.word_idx()),
+            DictionaryInnerRef::Archived(dict) => dict.word_feature(self.word_idx()),
+            DictionaryInnerRef::Owned(dict) => dict.word_feature(self.word_idx()),
         }
     }
 
@@ -325,7 +319,11 @@ pub struct NbestTokenIter<'w> {
 
 impl<'w> NbestTokenIter<'w> {
     pub(crate) fn new(worker: &'w Worker, path_idx: usize) -> Self {
-        Self { worker, path_idx, current_token_idx: 0 }
+        Self {
+            worker,
+            path_idx,
+            current_token_idx: 0,
+        }
     }
 }
 
@@ -388,13 +386,13 @@ mod tests {
         let char_def = "DEFAULT 0 1 0";
         let unk_def = "DEFAULT,0,0,100,*";
 
-        let dict_inner =
-            SystemDictionaryBuilder::from_readers(
-                lexicon_csv.as_bytes(),
-                matrix_def.as_bytes(),
-                char_def.as_bytes(),
-                unk_def.as_bytes(),
-            ).unwrap();
+        let dict_inner = SystemDictionaryBuilder::from_readers(
+            lexicon_csv.as_bytes(),
+            matrix_def.as_bytes(),
+            char_def.as_bytes(),
+            unk_def.as_bytes(),
+        )
+        .unwrap();
 
         let mut buffer = Vec::new();
         dict_inner.write(&mut buffer).unwrap();

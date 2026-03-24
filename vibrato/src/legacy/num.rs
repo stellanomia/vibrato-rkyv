@@ -1,8 +1,8 @@
 use bincode::{
+    Decode, Encode,
     de::Decoder,
     enc::Encoder,
     error::{AllowedEnumVariants, DecodeError, EncodeError},
-    Decode, Encode,
 };
 
 /// Represents an integer from 0 to 2^31 - 1.

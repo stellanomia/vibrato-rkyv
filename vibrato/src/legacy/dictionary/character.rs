@@ -2,7 +2,6 @@ use std::fmt;
 
 use bincode::{Decode, Encode};
 
-
 const CATE_IDSET_BITS: usize = 18;
 const CATE_IDSET_MASK: u32 = (1 << CATE_IDSET_BITS) - 1;
 const BASE_ID_BITS: usize = 8;

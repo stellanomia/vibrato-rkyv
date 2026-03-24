@@ -15,9 +15,9 @@ use crate::dictionary::lexicon::Lexicon;
 use crate::dictionary::word_idx::WordIdx;
 use crate::dictionary::{LexType, WordParam};
 use crate::errors::{Result, VibratoError};
+pub use crate::trainer::Trainer;
 pub use crate::trainer::config::TrainerConfig;
 use crate::trainer::corpus::Word;
-pub use crate::trainer::Trainer;
 use crate::utils::{self, FromU32};
 
 #[derive(Archive, Serialize, Deserialize)]

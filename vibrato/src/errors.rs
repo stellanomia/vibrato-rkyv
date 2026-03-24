@@ -2,6 +2,10 @@
 
 use std::error::Error;
 use std::fmt::{self, Debug};
+#[cfg(feature = "download")]
+use std::io;
+#[cfg(feature = "download")]
+use std::path::PathBuf;
 
 #[cfg(feature = "legacy")]
 use crate::legacy;
@@ -182,6 +186,12 @@ pub enum DownloadError {
     HttpStatus(reqwest::StatusCode),
     #[error(transparent)]
     PathPersist(#[from] tempfile::PersistError),
+    #[error("Cache directory I/O error at path '{path}'")]
+    CacheIo {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
 }
 
 impl From<std::num::TryFromIntError> for VibratoError {

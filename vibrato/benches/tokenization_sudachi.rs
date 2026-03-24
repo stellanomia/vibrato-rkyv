@@ -1,10 +1,10 @@
 use std::fs::File;
-use std::{fs, io};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
+use std::{fs, io};
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use sudachi::analysis::stateful_tokenizer::StatefulTokenizer;
 use sudachi::config::Config;
 use sudachi::dic::dictionary::JapaneseDictionary;
@@ -26,7 +26,6 @@ fn prepare_sudachi_dictionary(
 
     println!("Sudachi {} dictionary not found. Downloading...", dict_name);
     fs::create_dir_all(resource_dir)?;
-
 
     let tag = "20250828";
     let version = "20250825";

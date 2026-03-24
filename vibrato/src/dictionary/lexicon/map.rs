@@ -1,8 +1,8 @@
 pub mod posting;
 pub mod trie;
 
-use std::collections::BTreeMap;
 use rkyv::{Archive, Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 use crate::dictionary::lexicon::map::posting::{Postings, PostingsBuilder};
 use crate::dictionary::lexicon::map::trie::Trie;

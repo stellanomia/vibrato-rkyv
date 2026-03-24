@@ -1,13 +1,13 @@
 #![allow(dead_code)]
-use std::collections::BTreeMap;
 use rkyv::rancor::Error;
+use std::collections::BTreeMap;
 
-#[cfg(target_feature = "avx2")]
-use std::arch::x86_64 as x86_64;
 #[cfg(target_feature = "avx2")]
 use avx2_support::M256i;
 #[cfg(target_feature = "avx2")]
 use rkyv::with::Skip;
+#[cfg(target_feature = "avx2")]
+use std::arch::x86_64;
 
 use rkyv::{Archive, Deserialize, Serialize, from_bytes_unchecked, to_bytes};
 
@@ -35,9 +35,7 @@ impl U31x8 {
 
     #[cfg(target_feature = "avx2")]
     pub unsafe fn as_m256i(&self) -> x86_64::__m256i {
-        unsafe {
-            x86_64::_mm256_loadu_si256(self.0.as_ptr() as *const x86_64::__m256i)
-        }
+        unsafe { x86_64::_mm256_loadu_si256(self.0.as_ptr() as *const x86_64::__m256i) }
     }
 }
 
@@ -69,9 +67,10 @@ impl ScorerBuilder {
     fn check_base(base: u32, second_map: &BTreeMap<U31, i32>, checks: &[u32]) -> bool {
         for &key2 in second_map.keys() {
             if let Some(check) = checks.get(usize::from_u32(base ^ key2.get()))
-                && *check != UNUSED_CHECK {
-                    return false;
-                }
+                && *check != UNUSED_CHECK
+            {
+                return false;
+            }
         }
         true
     }
@@ -118,7 +117,7 @@ impl ScorerBuilder {
 
 #[cfg(target_feature = "avx2")]
 mod avx2_support {
-    use std::arch::x86_64 as x86_64;
+    use std::arch::x86_64;
 
     #[derive(Debug, Clone, Copy)]
     #[repr(transparent)]
@@ -126,9 +125,7 @@ mod avx2_support {
 
     impl Default for M256i {
         fn default() -> Self {
-            unsafe {
-                Self(x86_64::_mm256_setzero_si256())
-            }
+            unsafe { Self(x86_64::_mm256_setzero_si256()) }
         }
     }
 }
@@ -172,9 +169,10 @@ impl Scorer {
             let pos = base ^ key2.get();
             let pos = usize::from_u32(pos);
             if let Some(check) = self.checks.get(pos)
-                && *check == key1.get() {
-                    return Some(self.costs[pos]);
-                }
+                && *check == key1.get()
+            {
+                return Some(self.costs[pos]);
+            }
         }
         None
     }
@@ -195,7 +193,11 @@ impl Scorer {
 
     #[cfg(target_feature = "avx2")]
     #[inline(always)]
-    pub unsafe fn retrieve_cost(&self, key1: x86_64::__m256i, key2: x86_64::__m256i) -> x86_64::__m256i {
+    pub unsafe fn retrieve_cost(
+        &self,
+        key1: x86_64::__m256i,
+        key2: x86_64::__m256i,
+    ) -> x86_64::__m256i {
         unsafe {
             // key1 < bases.len() ?
             let mask_valid_key1 = x86_64::_mm256_cmpgt_epi32(self.bases_len.0, key1);
@@ -259,7 +261,9 @@ impl Scorer {
     }
 
     pub fn serialize_to_bytes(&self) -> Vec<u8> {
-        to_bytes::<Error>(self).expect("failed to rkyv serialize").into()
+        to_bytes::<Error>(self)
+            .expect("failed to rkyv serialize")
+            .into()
     }
 
     pub unsafe fn deserialize_from_bytes(bytes: &[u8]) -> Scorer {
@@ -374,7 +378,10 @@ impl ArchivedScorer {
                 let key1 = k1.as_m256i();
                 let key2 = k2.as_m256i();
 
-                sums = x86_64::_mm256_add_epi32(sums, self.retrieve_cost(key1, key2, bases_len, checks_len));
+                sums = x86_64::_mm256_add_epi32(
+                    sums,
+                    self.retrieve_cost(key1, key2, bases_len, checks_len),
+                );
             }
 
             // Sum up all 8 lanes of the SIMD register
@@ -393,17 +400,15 @@ impl ArchivedScorer {
 impl ArchivedU31x8 {
     #[cfg(target_feature = "avx2")]
     pub unsafe fn as_m256i(&self) -> x86_64::__m256i {
-        unsafe {
-            x86_64::_mm256_loadu_si256(self.0.as_ptr() as *const x86_64::__m256i)
-        }
+        unsafe { x86_64::_mm256_loadu_si256(self.0.as_ptr() as *const x86_64::__m256i) }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rkyv::rancor::Error;
     use crate::dictionary::connector::raw_connector::INVALID_FEATURE_ID;
+    use rkyv::rancor::Error;
 
     fn build_test_scorer() -> Scorer {
         let mut builder = ScorerBuilder::new();
@@ -437,12 +442,17 @@ mod tests {
         let bytes = scorer.serialize_to_bytes();
 
         #[allow(unused_mut)]
-        let mut restored_scorer = rkyv::from_bytes::<Scorer, Error>(&bytes).expect("deserialization failed");
+        let mut restored_scorer =
+            rkyv::from_bytes::<Scorer, Error>(&bytes).expect("deserialization failed");
 
         #[cfg(target_feature = "avx2")]
         {
-            restored_scorer.bases_len = M256i(unsafe { x86_64::_mm256_set1_epi32(i32::try_from(restored_scorer.bases.len()).unwrap()) });
-            restored_scorer.checks_len = M256i(unsafe { x86_64::_mm256_set1_epi32(i32::try_from(restored_scorer.checks.len()).unwrap()) });
+            restored_scorer.bases_len = M256i(unsafe {
+                x86_64::_mm256_set1_epi32(i32::try_from(restored_scorer.bases.len()).unwrap())
+            });
+            restored_scorer.checks_len = M256i(unsafe {
+                x86_64::_mm256_set1_epi32(i32::try_from(restored_scorer.checks.len()).unwrap())
+            });
         }
 
         assert_eq!(restored_scorer.bases, scorer.bases);
@@ -450,16 +460,40 @@ mod tests {
         assert_eq!(restored_scorer.costs, scorer.costs);
 
         let keys1 = U31x8::to_simd_vec(&[
-            U31::new(18).unwrap(), U31::new(17).unwrap(), U31::new(0).unwrap(), INVALID_FEATURE_ID,
-            U31::new(8).unwrap(), U31::new(12).unwrap(), U31::new(19).unwrap(), INVALID_FEATURE_ID,
-            INVALID_FEATURE_ID, U31::new(9).unwrap(), U31::new(0).unwrap(), U31::new(7).unwrap(),
-            U31::new(17).unwrap(), U31::new(13).unwrap(), U31::new(0).unwrap(), INVALID_FEATURE_ID
+            U31::new(18).unwrap(),
+            U31::new(17).unwrap(),
+            U31::new(0).unwrap(),
+            INVALID_FEATURE_ID,
+            U31::new(8).unwrap(),
+            U31::new(12).unwrap(),
+            U31::new(19).unwrap(),
+            INVALID_FEATURE_ID,
+            INVALID_FEATURE_ID,
+            U31::new(9).unwrap(),
+            U31::new(0).unwrap(),
+            U31::new(7).unwrap(),
+            U31::new(17).unwrap(),
+            U31::new(13).unwrap(),
+            U31::new(0).unwrap(),
+            INVALID_FEATURE_ID,
         ]);
         let keys2 = U31x8::to_simd_vec(&[
-            U31::new(17).unwrap(), U31::new(0).unwrap(), U31::new(0).unwrap(), INVALID_FEATURE_ID,
-            U31::new(6).unwrap(), U31::new(18).unwrap(), U31::new(5).unwrap(), INVALID_FEATURE_ID,
-            INVALID_FEATURE_ID, U31::new(9).unwrap(), U31::new(19).unwrap(), U31::new(9).unwrap(),
-            U31::new(4).unwrap(), U31::new(0).unwrap(), U31::new(18).unwrap(), INVALID_FEATURE_ID
+            U31::new(17).unwrap(),
+            U31::new(0).unwrap(),
+            U31::new(0).unwrap(),
+            INVALID_FEATURE_ID,
+            U31::new(6).unwrap(),
+            U31::new(18).unwrap(),
+            U31::new(5).unwrap(),
+            INVALID_FEATURE_ID,
+            INVALID_FEATURE_ID,
+            U31::new(9).unwrap(),
+            U31::new(19).unwrap(),
+            U31::new(9).unwrap(),
+            U31::new(4).unwrap(),
+            U31::new(0).unwrap(),
+            U31::new(18).unwrap(),
+            INVALID_FEATURE_ID,
         ]);
 
         assert_eq!(restored_scorer.accumulate_cost(&keys1, &keys2), 100);
@@ -515,8 +549,14 @@ mod tests {
     #[test]
     fn u31x8_serialize_roundtrip() {
         let data = U31x8([
-            U31::new(0).unwrap(), U31::new(1).unwrap(), U31::new(2).unwrap(), U31::new(3).unwrap(),
-            U31::new(4).unwrap(), U31::new(5).unwrap(), U31::new(6).unwrap(), U31::new(7).unwrap(),
+            U31::new(0).unwrap(),
+            U31::new(1).unwrap(),
+            U31::new(2).unwrap(),
+            U31::new(3).unwrap(),
+            U31::new(4).unwrap(),
+            U31::new(5).unwrap(),
+            U31::new(6).unwrap(),
+            U31::new(7).unwrap(),
         ]);
 
         let bytes = rkyv::to_bytes::<Error>(&data).unwrap();

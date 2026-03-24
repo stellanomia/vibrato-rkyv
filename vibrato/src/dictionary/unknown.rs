@@ -2,12 +2,12 @@ use std::io::Read;
 
 use rkyv::{Archive, Deserialize, Serialize};
 
+use crate::dictionary::LexType;
 use crate::dictionary::character::{CharInfo, CharProperty};
 use crate::dictionary::connector::Connector;
 use crate::dictionary::lexicon::{Lexicon, WordParam};
 use crate::dictionary::mapper::ConnIdMapper;
 use crate::dictionary::word_idx::WordIdx;
-use crate::dictionary::LexType;
 use crate::errors::{Result, VibratoError};
 use crate::sentence::Sentence;
 use crate::utils::FromU32;
@@ -338,7 +338,11 @@ impl ArchivedUnkHandler {
     pub fn word_param(&self, word_idx: WordIdx) -> WordParam {
         debug_assert_eq!(word_idx.lex_type, LexType::Unknown);
         let e = &self.entries[usize::from_u32(word_idx.word_id)];
-        WordParam::new(e.left_id.to_native(), e.right_id.to_native(), e.word_cost.to_native())
+        WordParam::new(
+            e.left_id.to_native(),
+            e.right_id.to_native(),
+            e.word_cost.to_native(),
+        )
     }
 
     #[inline(always)]
@@ -351,7 +355,9 @@ impl ArchivedUnkHandler {
     #[inline(always)]
     pub fn word_cate_id(&self, word_idx: WordIdx) -> u16 {
         debug_assert_eq!(word_idx.lex_type, LexType::Unknown);
-        self.entries[usize::from_u32(word_idx.word_id)].cate_id.to_native()
+        self.entries[usize::from_u32(word_idx.word_id)]
+            .cate_id
+            .to_native()
     }
 }
 
@@ -445,9 +451,10 @@ NUMERIC,0,0,0,数字";
         sent.set_sentence("変数var42を書き換えます");
         sent.compile(&prop);
 
-        assert!(unk
-            .compatible_unk_index(&sent, 5, 7, "名詞,一般,変数,バーヨンジューニ")
-            .is_none());
+        assert!(
+            unk.compatible_unk_index(&sent, 5, 7, "名詞,一般,変数,バーヨンジューニ")
+                .is_none()
+        );
     }
 
     #[test]

@@ -1,4 +1,3 @@
-
 use bincode::{Decode, Encode};
 
 #[derive(Default, Debug, Clone, Decode, Encode, PartialEq, Eq)]

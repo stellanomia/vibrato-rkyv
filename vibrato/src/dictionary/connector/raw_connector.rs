@@ -1,12 +1,12 @@
 pub mod scorer;
 
-use std::io::{prelude::*, BufReader, Read};
+use std::io::{BufReader, Read, prelude::*};
 
 use hashbrown::HashMap;
 use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::dictionary::connector::raw_connector::scorer::{
-    ArchivedU31x8, SIMD_SIZE, Scorer, ScorerBuilder, U31x8
+    ArchivedU31x8, SIMD_SIZE, Scorer, ScorerBuilder, U31x8,
 };
 use crate::dictionary::connector::{Connector, ConnectorCost, ConnectorView};
 use crate::dictionary::mapper::ConnIdMapper;
@@ -420,12 +420,14 @@ mod tests {
         let mut right_id_map = HashMap::new();
         let mut left_id_map = HashMap::new();
 
-        assert!(RawConnectorBuilder::parse_cost(
-            "SURF-SURF:これは\t100",
-            &mut right_id_map,
-            &mut left_id_map
-        )
-        .is_err());
+        assert!(
+            RawConnectorBuilder::parse_cost(
+                "SURF-SURF:これは\t100",
+                &mut right_id_map,
+                &mut left_id_map
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -433,12 +435,14 @@ mod tests {
         let mut right_id_map = HashMap::new();
         let mut left_id_map = HashMap::new();
 
-        assert!(RawConnectorBuilder::parse_cost(
-            "SURF-SURF:これ/は100",
-            &mut right_id_map,
-            &mut left_id_map
-        )
-        .is_err());
+        assert!(
+            RawConnectorBuilder::parse_cost(
+                "SURF-SURF:これ/は100",
+                &mut right_id_map,
+                &mut left_id_map
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -446,12 +450,14 @@ mod tests {
         let mut right_id_map = HashMap::new();
         let mut left_id_map = HashMap::new();
 
-        assert!(RawConnectorBuilder::parse_cost(
-            "SURF-SURF:これ/は\tabc",
-            &mut right_id_map,
-            &mut left_id_map
-        )
-        .is_err());
+        assert!(
+            RawConnectorBuilder::parse_cost(
+                "SURF-SURF:これ/は\tabc",
+                &mut right_id_map,
+                &mut left_id_map
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -494,12 +500,14 @@ mod tests {
             "これ,コレ".to_string() => U31::new(4).unwrap(),
         ];
 
-        assert!(RawConnectorBuilder::parse_features(
-            "これ,*,コレ,\"これ,助詞\",*",
-            &id_map,
-            "bigram.left",
-        )
-        .is_err());
+        assert!(
+            RawConnectorBuilder::parse_features(
+                "これ,*,コレ,\"これ,助詞\",*",
+                &id_map,
+                "bigram.left",
+            )
+            .is_err()
+        );
     }
 
     #[test]

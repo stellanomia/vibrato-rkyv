@@ -79,10 +79,11 @@ impl FeatureRewriterBuilder {
             };
             for action in &self.nodes[cursor].actions {
                 if let Action::Transition(edge) = action
-                    && parsed == edge.pattern {
-                        cursor = edge.target;
-                        continue 'a;
-                    }
+                    && parsed == edge.pattern
+                {
+                    cursor = edge.target;
+                    continue 'a;
+                }
             }
             let target = self.nodes.len();
             self.nodes[cursor].actions.push(Action::Transition(Edge {

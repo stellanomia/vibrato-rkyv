@@ -18,9 +18,14 @@ use std::sync::{Arc, LazyLock};
 
 use memmap2::Mmap;
 use rkyv::{
-    access, access_unchecked, api::serialize_using, ser::allocator::Arena, ser::sharing::Share,
-    Archive, Archived, Deserialize, Serialize, rancor::Error,
-    ser::writer::IoWriter, ser::Serializer, util::{with_arena, AlignedVec},
+    Archive, Archived, Deserialize, Serialize, access, access_unchecked,
+    api::serialize_using,
+    rancor::Error,
+    ser::Serializer,
+    ser::allocator::Arena,
+    ser::sharing::Share,
+    ser::writer::IoWriter,
+    util::{AlignedVec, with_arena},
 };
 use sha2::{Digest, Sha256};
 
@@ -162,14 +167,8 @@ impl Deref for ArchivedDictionary {
 }
 
 /// Type of a lexicon that contains the word.
-#[derive(
-    Clone, Copy, Eq, PartialEq, Debug, Hash,
-    Archive, Serialize, Deserialize,
-)]
-#[rkyv(
-    compare(PartialEq),
-    derive(Debug, Eq, PartialEq, Hash, Clone, Copy),
-)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Hash, Archive, Serialize, Deserialize)]
+#[rkyv(compare(PartialEq), derive(Debug, Eq, PartialEq, Hash, Clone, Copy))]
 #[repr(u8)]
 #[derive(Default)]
 pub enum LexType {
@@ -195,12 +194,15 @@ impl ArchivedLexType {
 
 impl Drop for Dictionary {
     fn drop(&mut self) {
-        if let Dictionary::Owned { _caching_handle, .. } = self
+        if let Dictionary::Owned {
+            _caching_handle, ..
+        } = self
             && let Some(handle_arc) = _caching_handle.take()
             && let Ok(handle) = Arc::try_unwrap(handle_arc)
-            && let Err(e) = handle.join() {
-                log::error!("[vibrato-rkyv] Background caching thread panicked: {:?}", e);
-            }
+            && let Err(e) = handle.join()
+        {
+            log::error!("[vibrato-rkyv] Background caching thread panicked: {:?}", e);
+        }
     }
 }
 
@@ -363,7 +365,10 @@ impl DictionaryInner {
 impl Dictionary {
     /// Creates a dictionary from `DictionaryInner`.
     pub fn from_inner(dict: DictionaryInner) -> Self {
-        Self::Owned{ dict: Arc::new(dict), _caching_handle: None }
+        Self::Owned {
+            dict: Arc::new(dict),
+            _caching_handle: None,
+        }
     }
 
     /// Serializes the dictionary data to a writer using the `rkyv` format.
@@ -413,11 +418,10 @@ impl Dictionary {
         W: Write,
     {
         match self {
-            Dictionary::Owned { dict, ..} => dict.write(wtr),
+            Dictionary::Owned { dict, .. } => dict.write(wtr),
             Dictionary::Archived(_) => unreachable!(),
         }
     }
-
 
     /// Creates a dictionary from a reader by loading all data into a heap buffer.
     ///
@@ -441,7 +445,7 @@ impl Dictionary {
                 "rdr",
                 "This appears to be a legacy bincode-based dictionary file. Please use a dictionary compiled for the rkyv version of vibrato.",
             ));
-        }else if !magic.starts_with(MODEL_MAGIC) {
+        } else if !magic.starts_with(MODEL_MAGIC) {
             return Err(VibratoError::invalid_argument(
                 "rdr",
                 "The magic number of the input model mismatches.",
@@ -468,11 +472,10 @@ impl Dictionary {
         // SAFETY: AlignedVec ensures correct alignment for ArchivedDictionaryInner
         let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
 
-        Ok(
-            Self::Archived(
-                ArchivedDictionary { _buffer: DictBuffer::Aligned(aligned_bytes), data }
-            )
-        )
+        Ok(Self::Archived(ArchivedDictionary {
+            _buffer: DictBuffer::Aligned(aligned_bytes),
+            data,
+        }))
     }
 
     /// Creates a dictionary from a file path using memory-mapping for fast loading.
@@ -550,8 +553,8 @@ impl Dictionary {
 
             #[cfg(feature = "legacy")]
             {
-                use std::io::Seek;
                 use crate::legacy;
+                use std::io::Seek;
 
                 file.seek(io::SeekFrom::Start(0))?;
 
@@ -560,10 +563,16 @@ impl Dictionary {
                 let dict = unsafe {
                     use std::mem::transmute;
 
-                    Arc::new(transmute::<legacy::dictionary::DictionaryInner, DictionaryInner>(dict))
+                    Arc::new(transmute::<
+                        legacy::dictionary::DictionaryInner,
+                        DictionaryInner,
+                    >(dict))
                 };
 
-                return Ok(Self::Owned{ dict, _caching_handle: None });
+                return Ok(Self::Owned {
+                    dict,
+                    _caching_handle: None,
+                });
             }
         } else if !magic.starts_with(MODEL_MAGIC) {
             return Err(VibratoError::invalid_argument(
@@ -585,16 +594,16 @@ impl Dictionary {
         let hash_name = format!("{}.sha256", current_hash);
         let hash_path = path.parent().unwrap().join(".cache").join(&hash_name);
 
-        if mode == LoadMode::TrustCache
-            && hash_path.exists() {
-                let archived = unsafe { access_unchecked::<ArchivedDictionaryInner>(data_bytes) };
-                let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
-                return {
-                    Ok(
-                        Dictionary::Archived(ArchivedDictionary { _buffer: DictBuffer::Mmap(mmap), data })
-                    )
-                };
-            }
+        if mode == LoadMode::TrustCache && hash_path.exists() {
+            let archived = unsafe { access_unchecked::<ArchivedDictionaryInner>(data_bytes) };
+            let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
+            return {
+                Ok(Dictionary::Archived(ArchivedDictionary {
+                    _buffer: DictBuffer::Mmap(mmap),
+                    data,
+                }))
+            };
+        }
 
         let global_cache_dir = GLOBAL_CACHE_DIR.as_ref().ok_or_else(|| {
             VibratoError::invalid_state("Could not determine system cache directory.", "")
@@ -602,16 +611,16 @@ impl Dictionary {
 
         let hash_path = global_cache_dir.join(&hash_name);
 
-        if mode == LoadMode::TrustCache
-            && hash_path.exists() {
-                let archived = unsafe { access_unchecked::<ArchivedDictionaryInner>(data_bytes) };
-                let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
-                return {
-                    Ok(
-                        Dictionary::Archived(ArchivedDictionary { _buffer: DictBuffer::Mmap(mmap), data })
-                    )
-                };
-            }
+        if mode == LoadMode::TrustCache && hash_path.exists() {
+            let archived = unsafe { access_unchecked::<ArchivedDictionaryInner>(data_bytes) };
+            let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
+            return {
+                Ok(Dictionary::Archived(ArchivedDictionary {
+                    _buffer: DictBuffer::Mmap(mmap),
+                    data,
+                }))
+            };
+        }
 
         match access::<ArchivedDictionaryInner, Error>(data_bytes) {
             Ok(archived) => {
@@ -621,12 +630,10 @@ impl Dictionary {
                 }
 
                 let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
-                Ok(Self::Archived(
-                    ArchivedDictionary {
-                        _buffer: DictBuffer::Mmap(mmap),
-                        data,
-                    }
-                ))
+                Ok(Self::Archived(ArchivedDictionary {
+                    _buffer: DictBuffer::Mmap(mmap),
+                    data,
+                }))
             }
             Err(_) => {
                 let mut aligned_bytes = AlignedVec::with_capacity(data_bytes.len());
@@ -640,12 +647,10 @@ impl Dictionary {
                 })?;
 
                 let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
-                Ok(Self::Archived(
-                    ArchivedDictionary {
-                        _buffer: DictBuffer::Aligned(aligned_bytes),
-                        data,
-                    }
-                ))
+                Ok(Self::Archived(ArchivedDictionary {
+                    _buffer: DictBuffer::Aligned(aligned_bytes),
+                    data,
+                }))
             }
         }
     }
@@ -708,10 +713,16 @@ impl Dictionary {
                 let dict = unsafe {
                     use std::mem::transmute;
 
-                    Arc::new(transmute::<legacy::dictionary::DictionaryInner, DictionaryInner>(dict))
+                    Arc::new(transmute::<
+                        legacy::dictionary::DictionaryInner,
+                        DictionaryInner,
+                    >(dict))
                 };
 
-                return Ok(Self::Owned{ dict, _caching_handle: None });
+                return Ok(Self::Owned {
+                    dict,
+                    _caching_handle: None,
+                });
             }
         } else if !magic.starts_with(MODEL_MAGIC) {
             return Err(VibratoError::invalid_argument(
@@ -731,14 +742,10 @@ impl Dictionary {
 
         let archived = unsafe { access_unchecked::<ArchivedDictionaryInner>(data_bytes) };
         let data: &'static ArchivedDictionaryInner = unsafe { &*(archived as *const _) };
-        Ok(
-            Self::Archived(
-                ArchivedDictionary {
-                    _buffer: DictBuffer::Mmap(mmap),
-                    data,
-                }
-            )
-        )
+        Ok(Self::Archived(ArchivedDictionary {
+            _buffer: DictBuffer::Mmap(mmap),
+            data,
+        }))
     }
 
     /// Loads a dictionary from a Zstandard-compressed file using a specified caching strategy.
@@ -750,9 +757,12 @@ impl Dictionary {
     ///
     /// * `path` - A path to the Zstandard-compressed dictionary file.
     /// * `strategy` - The desired caching strategy, defined by the [`CacheStrategy`] enum.
-    #[cfg_attr(feature = "legacy", doc = r"
+    #[cfg_attr(
+        feature = "legacy",
+        doc = r"
     When the `legacy` feature is enabled, this function returns immediately while caching
-    happens in the background, providing a responsive user experience.")]
+    happens in the background, providing a responsive user experience."
+    )]
     ///
     /// # Errors
     ///
@@ -818,10 +828,13 @@ impl Dictionary {
     ///
     /// * `path` - A path to the Zstandard-compressed dictionary file.
     /// * `cache_dir` - The directory where the decompressed dictionary cache will be stored.
-    #[cfg_attr(feature = "legacy", doc = r" * `wait_for_cache` - (legacy feature only) If `true` and a legacy (bincode) dictionary is
+    #[cfg_attr(
+        feature = "legacy",
+        doc = r" * `wait_for_cache` - (legacy feature only) If `true` and a legacy (bincode) dictionary is
     provided, the function will block until the conversion to the new format and caching are complete.
     If `false`, it returns immediately with a fully functional dictionary, while the caching
-    process runs in a background thread.")]
+    process runs in a background thread."
+    )]
     ///
     /// # Errors
     ///
@@ -831,7 +844,10 @@ impl Dictionary {
     /// - The decompressed data is not a valid dictionary file (e.g., corrupted data or
     ///   incorrect magic number).
     /// - The cache directory specified by `cache_dir` cannot be created or written to.
-    #[cfg_attr(feature = "legacy", doc = r" - (legacy feature only) The background caching thread panics when `wait_for_cache` is `true`.")]
+    #[cfg_attr(
+        feature = "legacy",
+        doc = r" - (legacy feature only) The background caching thread panics when `wait_for_cache` is `true`."
+    )]
     ///
     /// # Examples
     ///
@@ -843,7 +859,10 @@ impl Dictionary {
     /// let dict = Dictionary::from_zstd_with_options(
     ///     "path/to/system.dic.zst",
     ///     "/tmp/my_app_cache",
-    #[cfg_attr(feature = "legacy", doc = r"true, // Wait for background cache generation to complete")]
+    #[cfg_attr(
+        feature = "legacy",
+        doc = r"true, // Wait for background cache generation to complete"
+    )]
     /// )?;
     /// # Ok(())
     /// # }
@@ -852,8 +871,7 @@ impl Dictionary {
     pub fn from_zstd_with_options<P, Q>(
         path: P,
         cache_dir: Q,
-        #[cfg(feature = "legacy")]
-        wait_for_cache: bool,
+        #[cfg(feature = "legacy")] wait_for_cache: bool,
     ) -> Result<Self>
     where
         P: AsRef<std::path::Path>,
@@ -899,16 +917,16 @@ impl Dictionary {
                 break 'l;
             }
 
-            let dict = legacy::Dictionary::read(
-                zstd::Decoder::new(File::open(zstd_path)?)?
-            )?.data;
+            let dict = legacy::Dictionary::read(zstd::Decoder::new(File::open(zstd_path)?)?)?.data;
 
             let dict = unsafe {
                 use std::mem::transmute;
 
-                Arc::new(transmute::<legacy::dictionary::DictionaryInner, DictionaryInner>(dict))
+                Arc::new(transmute::<
+                    legacy::dictionary::DictionaryInner,
+                    DictionaryInner,
+                >(dict))
             };
-
 
             let dict_for_cache = Arc::clone(&dict);
             let handle = thread::spawn(move || -> Result<()> {
@@ -920,7 +938,8 @@ impl Dictionary {
 
                 let dict_file = File::open(decompressed_dict_path)?;
                 let decompressed_dict_hash = compute_metadata_hash(&dict_file.metadata()?);
-                let decompressed_dict_hash_path = decompressed_dir.join(format!("{}.sha256", decompressed_dict_hash));
+                let decompressed_dict_hash_path =
+                    decompressed_dir.join(format!("{}.sha256", decompressed_dict_hash));
 
                 File::create(decompressed_dict_hash_path)?;
 
@@ -944,7 +963,10 @@ impl Dictionary {
                 Some(std::sync::Arc::new(handle))
             };
 
-            return Ok(Self::Owned { dict, _caching_handle });
+            return Ok(Self::Owned {
+                dict,
+                _caching_handle,
+            });
         }
 
         if magic.starts_with(LEGACY_MODEL_MAGIC_PREFIX) {
@@ -984,8 +1006,10 @@ impl Dictionary {
 
         temp_file.persist(&decompressed_dict_path)?;
 
-        let decompressed_dict_hash = compute_metadata_hash(&File::open(&decompressed_dict_path)?.metadata()?);
-        let decompressed_dict_hash_path = decompressed_dir.join(format!("{}.sha256", decompressed_dict_hash));
+        let decompressed_dict_hash =
+            compute_metadata_hash(&File::open(&decompressed_dict_path)?.metadata()?);
+        let decompressed_dict_hash_path =
+            decompressed_dir.join(format!("{}.sha256", decompressed_dict_hash));
 
         File::create(decompressed_dict_hash_path)?;
 
@@ -1010,13 +1034,15 @@ impl Dictionary {
         let legacy_dict_inner = crate::legacy::Dictionary::read(reader)?.data;
 
         let rkyv_dict_inner = unsafe {
-            std::mem::transmute::<
-                crate::legacy::dictionary::DictionaryInner,
-                DictionaryInner,
-            >(legacy_dict_inner)
+            std::mem::transmute::<crate::legacy::dictionary::DictionaryInner, DictionaryInner>(
+                legacy_dict_inner,
+            )
         };
 
-        Ok(Self::Owned { dict: Arc::new(rkyv_dict_inner), _caching_handle: None })
+        Ok(Self::Owned {
+            dict: Arc::new(rkyv_dict_inner),
+            _caching_handle: None,
+        })
     }
 
     /// Creates a `Dictionary` instance from a preset, downloading it if not present.
@@ -1060,7 +1086,10 @@ impl Dictionary {
     /// let mut tokenizer = Tokenizer::new(dictionary);
     /// ```
     #[cfg(feature = "download")]
-    pub fn from_preset_with_download<P: AsRef<std::path::Path>>(kind: PresetDictionaryKind, cache_dir: P) -> Result<Self> {
+    pub fn from_preset_with_download<P: AsRef<std::path::Path>>(
+        kind: PresetDictionaryKind,
+        cache_dir: P,
+    ) -> Result<Self> {
         let dict_path = fetch::download_dictionary(kind, cache_dir.as_ref())?;
 
         Self::from_zstd_with_options(
@@ -1108,7 +1137,10 @@ impl Dictionary {
     /// let dictionary = Dictionary::from_zstd(dict_path, CacheStrategy::Local).unwrap();
     /// ```
     #[cfg(feature = "download")]
-    pub fn download_dictionary<P: AsRef<std::path::Path>>(kind: PresetDictionaryKind, cache_dir: P) -> Result<std::path::PathBuf> {
+    pub fn download_dictionary<P: AsRef<std::path::Path>>(
+        kind: PresetDictionaryKind,
+        cache_dir: P,
+    ) -> Result<std::path::PathBuf> {
         Ok(fetch::download_dictionary(kind, cache_dir)?)
     }
 
@@ -1139,7 +1171,10 @@ impl Dictionary {
         let output_path = output_path.as_ref();
 
         let output_dir = output_path.parent().ok_or_else(|| {
-            VibratoError::invalid_argument("output_path", "Output path must have a parent directory.")
+            VibratoError::invalid_argument(
+                "output_path",
+                "Output path must have a parent directory.",
+            )
         })?;
         std::fs::create_dir_all(output_dir)?;
 
@@ -1219,10 +1254,7 @@ pub(crate) fn compute_metadata_hash(meta: &Metadata) -> String {
     {
         use std::time::SystemTime;
 
-        fn update_system_time(
-            time: Result<SystemTime, std::io::Error>,
-            hasher: &mut Sha256,
-        ) {
+        fn update_system_time(time: Result<SystemTime, std::io::Error>, hasher: &mut Sha256) {
             match time.and_then(|t| {
                 t.duration_since(SystemTime::UNIX_EPOCH)
                     .map_err(|_| std::io::Error::from(std::io::ErrorKind::Other))
@@ -1238,13 +1270,22 @@ pub(crate) fn compute_metadata_hash(meta: &Metadata) -> String {
         }
 
         let file_type = meta.file_type();
-        let type_byte: u8 = if file_type.is_file() { 0x01 }
-        else if file_type.is_dir() { 0x02 }
-        else if file_type.is_symlink() { 0x03 }
-        else { 0x00 };
+        let type_byte: u8 = if file_type.is_file() {
+            0x01
+        } else if file_type.is_dir() {
+            0x02
+        } else if file_type.is_symlink() {
+            0x03
+        } else {
+            0x00
+        };
         hasher.update([type_byte]);
 
-        let readonly_byte: u8 = if meta.permissions().readonly() { 0x01 } else { 0x00 };
+        let readonly_byte: u8 = if meta.permissions().readonly() {
+            0x01
+        } else {
+            0x00
+        };
         hasher.update([readonly_byte]);
 
         hasher.update(meta.len().to_le_bytes());
@@ -1261,7 +1302,9 @@ impl<'a> DictionaryInnerRef<'a> {
     #[inline(always)]
     pub fn connector(&self) -> ConnectorKindRef<'a> {
         match self {
-            DictionaryInnerRef::Archived(archived) => ConnectorKindRef::Archived(archived.connector()),
+            DictionaryInnerRef::Archived(archived) => {
+                ConnectorKindRef::Archived(archived.connector())
+            }
             DictionaryInnerRef::Owned(owned) => ConnectorKindRef::Owned(owned.connector()),
         }
     }
@@ -1269,12 +1312,8 @@ impl<'a> DictionaryInnerRef<'a> {
     #[inline(always)]
     pub(crate) fn word_param(&self, word_idx: WordIdx) -> WordParam {
         match self {
-            DictionaryInnerRef::Archived(archived_dict) => {
-                archived_dict.word_param(word_idx)
-            },
-            DictionaryInnerRef::Owned(dict) => {
-                dict.word_param(word_idx)
-            },
+            DictionaryInnerRef::Archived(archived_dict) => archived_dict.word_param(word_idx),
+            DictionaryInnerRef::Owned(dict) => dict.word_param(word_idx),
         }
     }
 }

@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .exit();
     }
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     corpus.shuffle(&mut rng);
 
     let mut train_wtr = std::fs::File::create(args.train_out)?;

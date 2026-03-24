@@ -1,4 +1,4 @@
-use std::io::{prelude::*, BufReader, Read};
+use std::io::{BufReader, Read, prelude::*};
 
 use rkyv::{Archive, Deserialize, Serialize};
 

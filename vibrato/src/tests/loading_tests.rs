@@ -2,9 +2,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use tempfile::{tempdir, TempDir};
+use tempfile::{TempDir, tempdir};
 
-use vibrato_rkyv::dictionary::{CacheStrategy, PresetDictionaryKind, GLOBAL_CACHE_DIR};
+use vibrato_rkyv::dictionary::{CacheStrategy, GLOBAL_CACHE_DIR, PresetDictionaryKind};
 use vibrato_rkyv::{Dictionary, LoadMode};
 
 struct GlobalTestResources {
@@ -19,33 +19,34 @@ impl GlobalTestResources {
         let permanent_asset_dir = dirs::cache_dir()
             .expect("Could not determine cache dir")
             .join("vibrato-rkyv-assets");
-        fs::create_dir_all(&permanent_asset_dir).expect("Failed to create permanent asset directory");
+        fs::create_dir_all(&permanent_asset_dir)
+            .expect("Failed to create permanent asset directory");
 
-        let rkyv_dict_path = Self::download_if_not_exists(
-            &permanent_asset_dir,
-            PresetDictionaryKind::Ipadic,
-        );
+        let rkyv_dict_path =
+            Self::download_if_not_exists(&permanent_asset_dir, PresetDictionaryKind::Ipadic);
 
         let legacy_dict_path = {
-            #[cfg(feature = "legacy")] {
+            #[cfg(feature = "legacy")]
+            {
                 Self::download_if_not_exists(
                     &permanent_asset_dir,
                     PresetDictionaryKind::BccwjUnidicExtractedCompact,
                 )
             }
-            #[cfg(not(feature = "legacy"))] {
+            #[cfg(not(feature = "legacy"))]
+            {
                 PathBuf::new()
             }
         };
 
         println!("Global test resources are ready.");
-        Self { rkyv_dict_path, legacy_dict_path }
+        Self {
+            rkyv_dict_path,
+            legacy_dict_path,
+        }
     }
 
-    fn download_if_not_exists(
-        asset_dir: &Path,
-        kind: PresetDictionaryKind,
-    ) -> PathBuf {
+    fn download_if_not_exists(asset_dir: &Path, kind: PresetDictionaryKind) -> PathBuf {
         let preset_dir = asset_dir.join(kind.name());
         fs::create_dir_all(&preset_dir).unwrap();
 
@@ -108,9 +109,10 @@ impl TestEnv {
             fs::remove_dir_all(local_cache).unwrap();
         }
         if let Some(global_cache_dir) = GLOBAL_CACHE_DIR.as_ref()
-            && global_cache_dir.exists() {
-                fs::remove_dir_all(global_cache_dir).unwrap();
-            }
+            && global_cache_dir.exists()
+        {
+            fs::remove_dir_all(global_cache_dir).unwrap();
+        }
     }
 }
 
@@ -129,7 +131,13 @@ fn test_from_zstd_rkyv_creates_local_cache() {
 
     let expected_local_cache_dir = env.work_dir.join(".cache");
     assert!(expected_local_cache_dir.exists());
-    assert!(expected_local_cache_dir.read_dir().unwrap().next().is_some());
+    assert!(
+        expected_local_cache_dir
+            .read_dir()
+            .unwrap()
+            .next()
+            .is_some()
+    );
 
     assert!(matches!(dict, Dictionary::Archived(_)));
 }
@@ -141,14 +149,19 @@ fn test_from_zstd_legacy_converts_and_caches_as_rkyv() {
     env.clear_vibrato_caches();
 
     let cache_dir = env.work_dir.join(".cache");
-    let dict_legacy = Dictionary::from_zstd_with_options(&env.legacy_zst_path, &cache_dir, true).unwrap();
+    let dict_legacy =
+        Dictionary::from_zstd_with_options(&env.legacy_zst_path, &cache_dir, true).unwrap();
     assert!(matches!(dict_legacy, Dictionary::Owned { .. }));
 
     assert!(cache_dir.exists());
-    let cached_files: Vec<_> = fs::read_dir(&cache_dir).unwrap().map(|r| r.unwrap().path()).collect();
+    let cached_files: Vec<_> = fs::read_dir(&cache_dir)
+        .unwrap()
+        .map(|r| r.unwrap().path())
+        .collect();
     assert_eq!(cached_files.len(), 2);
 
-    let dict_rkyv_from_cache = Dictionary::from_zstd(&env.legacy_zst_path, CacheStrategy::Local).unwrap();
+    let dict_rkyv_from_cache =
+        Dictionary::from_zstd(&env.legacy_zst_path, CacheStrategy::Local).unwrap();
     assert!(matches!(dict_rkyv_from_cache, Dictionary::Archived(_)));
 }
 

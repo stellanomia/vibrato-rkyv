@@ -2,12 +2,14 @@ use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
 
-use vibrato_rkyv::{Dictionary, Tokenizer};
 use vibrato_rkyv::dictionary::PresetDictionaryKind;
+use vibrato_rkyv::{Dictionary, Tokenizer};
 
 fn main() -> Result<(), Box<dyn Error>> {
     // This example uses a subdirectory in the system's standard cache location.
-    let cache_dir = dirs::cache_dir().unwrap_or_else(|| PathBuf::from(".cache")).join("vibrato-rkyv-assets");
+    let cache_dir = dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from(".cache"))
+        .join("vibrato-rkyv-assets");
     fs::create_dir_all(&cache_dir)?;
 
     println!("Cache directory: {}", cache_dir.display());
@@ -23,10 +25,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Other dictionaries are available with the `legacy` feature flag.
     println!("Loading the IPADIC preset dictionary. This may take a moment on the first run...");
     let preset = PresetDictionaryKind::Ipadic;
-    let dict = Dictionary::from_preset_with_download(
-        preset,
-        cache_dir.join(preset.name()),
-    )?;
+    let dict = Dictionary::from_preset_with_download(preset, cache_dir.join(preset.name()))?;
     println!("Dictionary loaded successfully.");
 
     // The tokenizer is created from the dictionary.
@@ -65,12 +64,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         let cost = worker.path_cost(i).unwrap();
         println!("  cost {}:", cost);
 
-        worker
-            .nbest_token_iter(i)
-            .unwrap()
-            .for_each(|t| {
-                println!("{}: {}", t.surface(), t.feature());
-            });
+        worker.nbest_token_iter(i).unwrap().for_each(|t| {
+            println!("{}: {}", t.surface(), t.feature());
+        });
     }
 
     Ok(())

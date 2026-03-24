@@ -1,15 +1,15 @@
-use std::{fs::File, io};
 use std::path::PathBuf;
+use std::{fs::File, io};
 
-use vibrato_rkyv::{dictionary::{DictionaryInner, SystemDictionaryBuilder}, errors::VibratoError};
+use vibrato_rkyv::{
+    dictionary::{DictionaryInner, SystemDictionaryBuilder},
+    errors::VibratoError,
+};
 
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[clap(
-    name = "build",
-    about = "A program to build the system dictionary."
-)]
+#[clap(name = "build", about = "A program to build the system dictionary.")]
 pub struct Args {
     /// System lexicon file (lex.csv).
     #[clap(short = 'l', long)]
@@ -76,9 +76,11 @@ fn get_source_from_args(args: &Args) -> Result<BuildSource, BuildError> {
             char_def: args.char_in.clone(),
             unk_def: args.unk_in.clone(),
         })
-    } else if let (Some(bigram_right_in), Some(bigram_left_in), Some(bigram_cost_in)) =
-        (&args.bigram_right_in, &args.bigram_left_in, &args.bigram_cost_in)
-    {
+    } else if let (Some(bigram_right_in), Some(bigram_left_in), Some(bigram_cost_in)) = (
+        &args.bigram_right_in,
+        &args.bigram_left_in,
+        &args.bigram_cost_in,
+    ) {
         Ok(BuildSource::FromBigram {
             lexicon: args.lexicon_in.clone(),
             bigram_right: bigram_right_in.clone(),
@@ -125,7 +127,10 @@ pub fn run(args: Args) -> Result<(), BuildError> {
     dict.write(&mut encoder)?;
     encoder.finish()?;
 
-    println!("Successfully built the dictionary to {}", args.sysdic_out.display());
+    println!(
+        "Successfully built the dictionary to {}",
+        args.sysdic_out.display()
+    );
     Ok(())
 }
 
@@ -133,14 +138,17 @@ pub fn run(args: Args) -> Result<(), BuildError> {
 /// This is the core build logic, independent of the CLI.
 pub fn build_dictionary(source: &BuildSource) -> Result<DictionaryInner, BuildError> {
     let dict = match source {
-        BuildSource::FromMatrix { lexicon, matrix, char_def, unk_def } => {
-            SystemDictionaryBuilder::from_readers(
-                File::open(lexicon)?,
-                File::open(matrix)?,
-                File::open(char_def)?,
-                File::open(unk_def)?,
-            )?
-        }
+        BuildSource::FromMatrix {
+            lexicon,
+            matrix,
+            char_def,
+            unk_def,
+        } => SystemDictionaryBuilder::from_readers(
+            File::open(lexicon)?,
+            File::open(matrix)?,
+            File::open(char_def)?,
+            File::open(unk_def)?,
+        )?,
         BuildSource::FromBigram {
             lexicon,
             bigram_right,
@@ -149,17 +157,15 @@ pub fn build_dictionary(source: &BuildSource) -> Result<DictionaryInner, BuildEr
             char_def,
             unk_def,
             dual_connector,
-        } => {
-            SystemDictionaryBuilder::from_readers_with_bigram_info(
-                File::open(lexicon)?,
-                File::open(bigram_right)?,
-                File::open(bigram_left)?,
-                File::open(bigram_cost)?,
-                File::open(char_def)?,
-                File::open(unk_def)?,
-                *dual_connector,
-            )?
-        }
+        } => SystemDictionaryBuilder::from_readers_with_bigram_info(
+            File::open(lexicon)?,
+            File::open(bigram_right)?,
+            File::open(bigram_left)?,
+            File::open(bigram_cost)?,
+            File::open(char_def)?,
+            File::open(unk_def)?,
+            *dual_connector,
+        )?,
     };
     Ok(dict)
 }

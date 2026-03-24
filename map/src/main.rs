@@ -3,9 +3,9 @@ use std::fs::File;
 use std::io::{prelude::*, BufReader};
 use std::path::PathBuf;
 
-use vibrato_rkyv::dictionary::{DictionaryInner, MODEL_MAGIC};
-use vibrato_rkyv::dictionary::ArchivedDictionaryInner;
 use rkyv::{access, deserialize, rancor::Error as RError};
+use vibrato_rkyv::dictionary::ArchivedDictionaryInner;
+use vibrato_rkyv::dictionary::{DictionaryInner, MODEL_MAGIC};
 
 use clap::Parser;
 

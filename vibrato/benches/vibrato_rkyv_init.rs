@@ -1,11 +1,11 @@
-use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use tempfile::TempDir;
-use vibrato_rkyv::dictionary::GLOBAL_CACHE_DIR;
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use vibrato_rkyv::dictionary::{CacheStrategy, LoadMode, PresetDictionaryKind};
+use tempfile::TempDir;
 use vibrato_rkyv::Dictionary;
+use vibrato_rkyv::dictionary::GLOBAL_CACHE_DIR;
+use vibrato_rkyv::dictionary::{CacheStrategy, LoadMode, PresetDictionaryKind};
 
 struct BencherContext {
     _volatile_run_dir: TempDir,
@@ -23,7 +23,10 @@ impl BencherContext {
         let permanent_zstd_path = permanent_asset_dir.join("system.dic.zst");
 
         let permanent_zstd_path = if !permanent_zstd_path.exists() {
-            println!("Permanent asset not found. Downloading to {:?}", permanent_asset_dir);
+            println!(
+                "Permanent asset not found. Downloading to {:?}",
+                permanent_asset_dir
+            );
             Dictionary::download_dictionary(preset, &permanent_asset_dir)
                 .expect("Failed to download dictionary")
         } else {
@@ -31,7 +34,8 @@ impl BencherContext {
             permanent_zstd_path
         };
 
-        let volatile_run_dir = tempfile::tempdir().expect("Failed to create volatile run directory");
+        let volatile_run_dir =
+            tempfile::tempdir().expect("Failed to create volatile run directory");
         let zstd_path = volatile_run_dir.path().join("system.dic.zst");
 
         println!("Copying asset to volatile directory: {:?}", zstd_path);
@@ -66,7 +70,6 @@ impl BencherContext {
         dir
     }
 
-
     fn drop_os_caches(&self) {
         #[cfg(target_os = "linux")]
         {
@@ -87,9 +90,10 @@ impl BencherContext {
         }
 
         if let Some(global_cache_dir) = GLOBAL_CACHE_DIR.as_ref()
-            && global_cache_dir.exists() {
-                fs::remove_dir_all(global_cache_dir).unwrap();
-            }
+            && global_cache_dir.exists()
+        {
+            fs::remove_dir_all(global_cache_dir).unwrap();
+        }
     }
 }
 
@@ -104,13 +108,21 @@ fn bench_vibrato_rkyv_dictionary_load(c: &mut Criterion) {
     group.bench_function("vibrato-rkyv/from_path/warm", |b| {
         let _ = fs::read(&ctx.dict_path).unwrap();
         let _ = Dictionary::from_path(&ctx.dict_path, LoadMode::TrustCache).unwrap();
-        b.iter(|| std::hint::black_box(Dictionary::from_path(&ctx.dict_path, LoadMode::TrustCache).unwrap()))
+        b.iter(|| {
+            std::hint::black_box(
+                Dictionary::from_path(&ctx.dict_path, LoadMode::TrustCache).unwrap(),
+            )
+        })
     });
 
     group.bench_function("vibrato-rkyv/from_path_unchecked/warm", |b| {
         let _ = fs::read(&ctx.dict_path).unwrap();
         let _ = Dictionary::from_path(&ctx.dict_path, LoadMode::TrustCache).unwrap();
-        b.iter(|| std::hint::black_box(unsafe { Dictionary::from_path_unchecked(&ctx.dict_path) }.unwrap()))
+        b.iter(|| {
+            std::hint::black_box(
+                unsafe { Dictionary::from_path_unchecked(&ctx.dict_path) }.unwrap(),
+            )
+        })
     });
 
     group.sample_size(30);
@@ -139,7 +151,6 @@ fn bench_vibrato_rkyv_dictionary_load(c: &mut Criterion) {
         let _ = Dictionary::from_zstd(&ctx.zstd_path, CacheStrategy::Local).unwrap();
         b.iter(|| Dictionary::from_zstd(&ctx.zstd_path, CacheStrategy::Local).unwrap())
     });
-
 
     group.sample_size(10);
     group.bench_function("vibrato-rkyv/from_zstd/cold", |b| {

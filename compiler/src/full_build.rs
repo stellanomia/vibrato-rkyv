@@ -1,7 +1,11 @@
-use std::{fs::File, path::PathBuf};
 use clap::Parser;
+use std::{fs::File, path::PathBuf};
 
-use crate::{build::{self, BuildError}, dictgen::{self, DictgenError, generate_dictionary_files}, train::{self, TrainError, TrainingParams}};
+use crate::{
+    build::{self, BuildError},
+    dictgen::{self, DictgenError, generate_dictionary_files},
+    train::{self, TrainError, TrainingParams},
+};
 
 #[derive(Parser, Debug)]
 #[clap(
@@ -127,6 +131,9 @@ pub fn run(args: Args) -> Result<(), FullBuildError> {
     dict_inner.write(&mut sysdic_wtr)?;
     sysdic_wtr.finish()?;
 
-    println!("Successfully built all artifacts in {}", args.out_dir.display());
+    println!(
+        "Successfully built all artifacts in {}",
+        args.out_dir.display()
+    );
     Ok(())
 }

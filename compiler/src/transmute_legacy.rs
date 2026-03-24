@@ -1,6 +1,6 @@
-use std::path::{Path, PathBuf};
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::path::{Path, PathBuf};
 
 use clap::Parser;
 use tempfile::NamedTempFile;
@@ -8,7 +8,6 @@ use vibrato_rkyv::Dictionary;
 use xz2::bufread::XzDecoder;
 
 use crate::{build::BuildError, dictgen::DictgenError, train::TrainError};
-
 
 #[derive(Parser, Debug)]
 #[clap(
@@ -38,7 +37,9 @@ pub enum TransmuteLegacyError {
     #[error(transparent)]
     VibratoRkyv(#[from] vibrato_rkyv::errors::VibratoError),
 
-    #[error("Unsupported file extension: {0:?}. Only '.dic', '.dic.zst', 'tar.xz', 'tar.gz' are supported.")]
+    #[error(
+        "Unsupported file extension: {0:?}. Only '.dic', '.dic.zst', 'tar.xz', 'tar.gz' are supported."
+    )]
     UnsupportedExtension(Option<String>),
 
     #[error("Dictionary file not found in the tar archive")]
@@ -47,7 +48,6 @@ pub enum TransmuteLegacyError {
     #[error("Output path is not a directory: {0}")]
     PathNotDirectory(PathBuf),
 }
-
 
 pub fn run(args: Args) -> Result<(), TransmuteLegacyError> {
     let bincode_path = args.input;
@@ -71,7 +71,10 @@ pub fn run(args: Args) -> Result<(), TransmuteLegacyError> {
     writer.flush()?;
 
     let compressed_out_path = args.out_dir.join("system.dic.zst");
-    println!("Compressing dictionary with zstd to: {}", compressed_out_path.display());
+    println!(
+        "Compressing dictionary with zstd to: {}",
+        compressed_out_path.display()
+    );
 
     let dict_file = File::open(&out_path)?;
     let mut reader = BufReader::new(dict_file);
@@ -91,7 +94,8 @@ pub fn run(args: Args) -> Result<(), TransmuteLegacyError> {
 fn get_reader(path: &Path) -> Result<Box<dyn Read>, TransmuteLegacyError> {
     let file = File::open(path)?;
 
-    let extension = path.extension()
+    let extension = path
+        .extension()
         .and_then(|s| s.to_str())
         .map(|s| s.to_lowercase());
 
@@ -116,22 +120,29 @@ fn get_reader(path: &Path) -> Result<Box<dyn Read>, TransmuteLegacyError> {
                 let mut entry = entry_result?;
                 let entry_path = entry.path()?;
 
-                if let Some(name) = entry_path.file_name().map(|s| s.to_string_lossy().to_string())
-                    && (name.ends_with(".dic") || name.ends_with(".dic.zst")) {
-                        let mut temp_file = NamedTempFile::new()?;
-                        println!("Found {} in archive, extracting to {}", name, temp_file.path().display());
+                if let Some(name) = entry_path
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    && (name.ends_with(".dic") || name.ends_with(".dic.zst"))
+                {
+                    let mut temp_file = NamedTempFile::new()?;
+                    println!(
+                        "Found {} in archive, extracting to {}",
+                        name,
+                        temp_file.path().display()
+                    );
 
-                        io::copy(&mut entry, temp_file.as_file_mut())?;
+                    io::copy(&mut entry, temp_file.as_file_mut())?;
 
-                        let reopened_file = temp_file.reopen()?;
+                    let reopened_file = temp_file.reopen()?;
 
-                        if name.ends_with(".dic.zst") {
-                             let decoder = zstd::Decoder::new(reopened_file)?;
-                             return Ok(Box::new(BufReader::new(decoder)));
-                        } else {
-                             return Ok(Box::new(BufReader::new(reopened_file)));
-                        }
+                    if name.ends_with(".dic.zst") {
+                        let decoder = zstd::Decoder::new(reopened_file)?;
+                        return Ok(Box::new(BufReader::new(decoder)));
+                    } else {
+                        return Ok(Box::new(BufReader::new(reopened_file)));
                     }
+                }
             }
             Err(TransmuteLegacyError::DictNotFoundInTar)
         }
@@ -146,22 +157,29 @@ fn get_reader(path: &Path) -> Result<Box<dyn Read>, TransmuteLegacyError> {
                 let mut entry = entry_result?;
                 let entry_path = entry.path()?;
 
-                if let Some(name) = entry_path.file_name().map(|s| s.to_string_lossy().to_string())
-                    && (name.ends_with(".dic") || name.ends_with(".dic.zst")) {
-                        let mut temp_file = NamedTempFile::new()?;
-                        println!("Found {} in archive, extracting to {}", name, temp_file.path().display());
+                if let Some(name) = entry_path
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    && (name.ends_with(".dic") || name.ends_with(".dic.zst"))
+                {
+                    let mut temp_file = NamedTempFile::new()?;
+                    println!(
+                        "Found {} in archive, extracting to {}",
+                        name,
+                        temp_file.path().display()
+                    );
 
-                        io::copy(&mut entry, temp_file.as_file_mut())?;
+                    io::copy(&mut entry, temp_file.as_file_mut())?;
 
-                        let reopened_file = temp_file.reopen()?;
+                    let reopened_file = temp_file.reopen()?;
 
-                        if name.ends_with(".dic.zst") {
-                             let decoder = zstd::Decoder::new(reopened_file)?;
-                             return Ok(Box::new(BufReader::new(decoder)));
-                        } else {
-                             return Ok(Box::new(BufReader::new(reopened_file)));
-                        }
+                    if name.ends_with(".dic.zst") {
+                        let decoder = zstd::Decoder::new(reopened_file)?;
+                        return Ok(Box::new(BufReader::new(decoder)));
+                    } else {
+                        return Ok(Box::new(BufReader::new(reopened_file)));
                     }
+                }
             }
             Err(TransmuteLegacyError::DictNotFoundInTar)
         }

@@ -78,8 +78,8 @@ use std::num::NonZeroU32;
 use hashbrown::{HashMap, HashSet};
 use rucrf_rkyv::{Edge, FeatureProvider, FeatureSet, Lattice};
 
-use crate::dictionary::word_idx::WordIdx;
 use crate::dictionary::LexType;
+use crate::dictionary::word_idx::WordIdx;
 use crate::errors::Result;
 pub use crate::trainer::config::TrainerConfig;
 pub use crate::trainer::corpus::{Corpus, Example, Word};
@@ -329,9 +329,10 @@ impl Trainer {
                 let edge = Edge::new(target, label_id);
                 // Skips adding if the edge is already added as a positive edge.
                 if let Some(first_edge) = lattice.nodes()[pos].edges().first()
-                    && edge == *first_edge {
-                        continue;
-                    }
+                    && edge == *first_edge
+                {
+                    continue;
+                }
                 lattice.add_edge(pos, edge).unwrap();
             }
 
@@ -348,9 +349,10 @@ impl Trainer {
                     let edge = Edge::new(target, label_id);
                     // Skips adding if the edge is already added as a positive edge.
                     if let Some(first_edge) = lattice.nodes()[pos].edges().first()
-                        && edge == *first_edge {
-                            return;
-                        }
+                        && edge == *first_edge
+                    {
+                        return;
+                    }
                     lattice.add_edge(pos, edge).unwrap();
                 },
             );
@@ -438,9 +440,10 @@ impl Trainer {
                 .get(k)
                 .unwrap();
             if let Some(x) = model.bigram_weight_indices().get(usize::from_u32(id.get()))
-                && x.is_empty() {
-                    self.config.feature_extractor.left_feature_ids.remove(k);
-                }
+                && x.is_empty()
+            {
+                self.config.feature_extractor.left_feature_ids.remove(k);
+            }
         }
         for k in &right_feature_keys {
             let id = self

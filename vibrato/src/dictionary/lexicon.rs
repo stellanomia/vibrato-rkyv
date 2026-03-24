@@ -7,13 +7,13 @@ use std::io::Read;
 use csv_core::ReadFieldResult;
 use rkyv::{Archive, Deserialize, Serialize};
 
+use crate::dictionary::LexType;
 use crate::dictionary::connector::Connector;
 use crate::dictionary::lexicon::feature::WordFeatures;
 use crate::dictionary::lexicon::map::WordMap;
 use crate::dictionary::lexicon::param::WordParams;
 use crate::dictionary::mapper::ConnIdMapper;
 use crate::dictionary::word_idx::WordIdx;
-use crate::dictionary::LexType;
 use crate::errors::{Result, VibratoError};
 use crate::utils::FromU32;
 
@@ -136,7 +136,7 @@ impl Lexicon {
                     true
                 }
                 ReadFieldResult::OutputFull => {
-                    return Err(VibratoError::invalid_format(name, "Field too large"))
+                    return Err(VibratoError::invalid_format(name, "Field too large"));
                 }
                 ReadFieldResult::Field { record_end } => {
                     match field_cnt {
@@ -254,7 +254,6 @@ impl ArchivedLexicon {
         self.features.get(usize::from_u32(word_idx.word_id))
     }
 }
-
 
 #[cfg(test)]
 mod tests {

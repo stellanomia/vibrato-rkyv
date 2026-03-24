@@ -1,8 +1,8 @@
+use crate::dictionary::LexType;
 use crate::dictionary::connector::ConnectorCost;
 use crate::dictionary::lexicon::WordParam;
 use crate::dictionary::mapper::ConnIdCounter;
 use crate::dictionary::word_idx::WordIdx;
-use crate::dictionary::LexType;
 
 use crate::common::{BOS_EOS_CONNECTION_ID, MAX_SENTENCE_LENGTH};
 
@@ -52,10 +52,22 @@ impl Default for Node {
 }
 
 impl Node {
-    #[inline(always)] pub fn word_idx(&self) -> WordIdx { WordIdx::new(self.lex_type, self.word_id) }
-    #[inline(always)] pub fn is_connected_to_bos(&self) -> bool { self.min_cost != MAX_COST }
-    #[inline(always)] pub fn is_bos(&self) -> bool { self.start_node == MAX_SENTENCE_LENGTH }
-    #[inline(always)] pub fn is_eos(&self) -> bool { self.right_id == u16::MAX }
+    #[inline(always)]
+    pub fn word_idx(&self) -> WordIdx {
+        WordIdx::new(self.lex_type, self.word_id)
+    }
+    #[inline(always)]
+    pub fn is_connected_to_bos(&self) -> bool {
+        self.min_cost != MAX_COST
+    }
+    #[inline(always)]
+    pub fn is_bos(&self) -> bool {
+        self.start_node == MAX_SENTENCE_LENGTH
+    }
+    #[inline(always)]
+    pub fn is_eos(&self) -> bool {
+        self.right_id == u16::MAX
+    }
 }
 
 pub enum LatticeKind {
@@ -327,7 +339,10 @@ impl LatticeNBest {
                 min_cost = new_cost;
                 eos_node.min_idx = i as u16;
             }
-            let new_path = self.arena.alloc(Path { lnode: lnode_ptr, lnext: eos_node.lpath });
+            let new_path = self.arena.alloc(Path {
+                lnode: lnode_ptr,
+                lnext: eos_node.lpath,
+            });
             eos_node.lpath = new_path;
         }
         eos_node.min_cost = min_cost;

@@ -2,14 +2,13 @@
 use std::arch::x86_64::{self, __m256i};
 
 use bincode::{
+    Decode, Encode,
     de::Decoder,
     enc::Encoder,
     error::{DecodeError, EncodeError},
-    Decode, Encode,
 };
 
 use crate::legacy::num::U31;
-
 
 pub const SIMD_SIZE: usize = 8;
 #[cfg(not(target_feature = "avx2"))]

@@ -112,7 +112,7 @@ impl Corpus {
                     return Err(VibratoError::invalid_format(
                         "rdr",
                         "Each line must be a pair of a surface and features or `EOS`",
-                    ))
+                    ));
                 }
             }
         }
