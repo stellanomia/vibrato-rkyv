@@ -17,7 +17,7 @@ use vibrato_rkyv::{CacheStrategy, Dictionary, LoadMode, Tokenizer};
 ///
 /// You can download a pre-compiled dictionary directly from the project's
 /// GitHub Releases page:
-/// > https://github.com/stellanomia/vibrato-rkyv/releases
+/// > https://github.com/o24s/vibrato-rkyv/releases
 ///
 /// Download a `.tar` file (e.g., `mecab-ipadic.tar`), extract it, and you will
 /// find the `.dic.zst` file inside.

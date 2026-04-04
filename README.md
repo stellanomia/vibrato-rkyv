@@ -4,7 +4,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/vibrato-rkyv)](https://crates.io/crates/vibrato-rkyv)
 [![Documentation](https://docs.rs/vibrato-rkyv/badge.svg)](https://docs.rs/vibrato-rkyv)
-[![Build Status](https://github.com/stellanomia/vibrato-rkyv/actions/workflows/rust.yml/badge.svg)](https://github.com/stellanomia/vibrato-rkyv/actions)
+[![Build Status](https://github.com/o24s/vibrato-rkyv/actions/workflows/rust.yml/badge.svg)](https://github.com/o24s/vibrato-rkyv/actions)
 
 Vibrato is a fast implementation of tokenization (or morphological analysis) based on the Viterbi algorithm.
 

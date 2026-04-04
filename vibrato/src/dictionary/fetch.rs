@@ -2,9 +2,11 @@
 use std::{
     fs::{self, File},
     io::{self, Seek, SeekFrom},
-    path::{Path, PathBuf}, sync::Mutex,
+    path::{Path, PathBuf},
+    sync::Mutex,
 };
 
+use digest_io::IoWrapper;
 use fs4::fs_std::FileExt;
 use sha2::{Digest, Sha256};
 use tempfile::tempdir_in;
@@ -80,9 +82,9 @@ pub(crate) fn download_dictionary<P: AsRef<Path>>(
 
     temp_file.seek(SeekFrom::Start(0))?;
     let calculated_hash = {
-        let mut hasher = Sha256::new();
+        let mut hasher = IoWrapper(Sha256::new());
         io::copy(&mut temp_file, &mut hasher)?;
-        hex::encode(hasher.finalize())
+        hex::encode(hasher.0.finalize())
     };
 
     if calculated_hash != preset_meta.sha256_hash_archive {
@@ -114,9 +116,9 @@ pub(crate) fn download_dictionary<P: AsRef<Path>>(
 
     let mut f = File::open(&dict_path)?;
     let metadata = f.metadata()?;
-    let mut hasher = Sha256::new();
+    let mut hasher = IoWrapper(Sha256::new());
     io::copy(&mut f, &mut hasher)?;
-    let hash = hex::encode(hasher.finalize());
+    let hash = hex::encode(hasher.0.finalize());
 
     if hash != preset_meta.sha256_hash_comp_dict {
         return Err(DownloadError::ExtractedHashMismatch);

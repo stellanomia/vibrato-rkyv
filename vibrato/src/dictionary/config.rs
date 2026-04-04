@@ -83,7 +83,7 @@ use FileType::*;
 pub(crate) static IPADIC: DictionaryMeta = DictionaryMeta {
     name: "mecab-ipadic",
     file_type: Tar,
-    download_url: "https://github.com/stellanomia/vibrato-rkyv/releases/download/v0.6.2/mecab-ipadic.tar",
+    download_url: "https://github.com/o24s/vibrato-rkyv/releases/download/v0.6.2/mecab-ipadic.tar",
     sha256_hash_archive: "9e933a3149af4a0f8a6a36f44c37d95ef875416629bdc859c63265813be93b14",
     sha256_hash_comp_dict: "bc27ae4a2c717799dd1779f163fe22b33d048bfc4bc7635ecfb5441916754250",
 };
@@ -91,7 +91,7 @@ pub(crate) static IPADIC: DictionaryMeta = DictionaryMeta {
 pub(crate) static UNIDIC_CWJ: DictionaryMeta = DictionaryMeta {
     name: "unidic-cwj",
     file_type: Tar,
-    download_url: "https://github.com/stellanomia/vibrato-rkyv/releases/download/v0.6.2/unidic-cwj.tar",
+    download_url: "https://github.com/o24s/vibrato-rkyv/releases/download/v0.6.2/unidic-cwj.tar",
     sha256_hash_archive: "2323b3bdcc50b5f8e00a6d729bacbf718f788905d4e300242201ed45c7f0b401",
     sha256_hash_comp_dict: "e3972b80a6ed45a40eb47063bdd30e7f3e051779b8df38ea191c8f2379c60130",
 };
@@ -99,7 +99,7 @@ pub(crate) static UNIDIC_CWJ: DictionaryMeta = DictionaryMeta {
 pub(crate) static UNIDIC_CSJ: DictionaryMeta = DictionaryMeta {
     name: "unidic-csj",
     file_type: Tar,
-    download_url: "https://github.com/stellanomia/vibrato-rkyv/releases/download/v0.6.2/unidic-csj.tar",
+    download_url: "https://github.com/o24s/vibrato-rkyv/releases/download/v0.6.2/unidic-csj.tar",
     sha256_hash_archive: "618af3379ce3483c370a20092d0fe064273b6cdec3315bc633bbf13c8db4756e",
     sha256_hash_comp_dict: "cf05cea0ec5a0264cecfdd34fbaf1c9230b2c7453914644a6e2e8f7b8a3dc567",
 };
